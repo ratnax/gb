@@ -10,7 +10,7 @@ OBJ3=	db.o
 OBJ4=	mpool.o
 OBJ5=
 
-MISC=	snprintf.o
+#MISC=	snprintf.o
 
 ${LIBDB}: ${OBJ1} ${OBJ2} ${OBJ3} ${OBJ4} ${OBJ5} ${MISC}
 	rm -f $@
@@ -63,5 +63,5 @@ memmove.o:
 	${CC} -DMEMMOVE -c -O -I. -Iinclude clib/memmove.c
 mktemp.o:
 	${CC} -c -O -I. -Iinclude clib/mktemp.c
-snprintf.o:
-	${CC} -c -O -I. -Iinclude clib/snprintf.c
+#snprintf.o:
+#	${CC} -c -O -I. -Iinclude clib/snprintf.c
