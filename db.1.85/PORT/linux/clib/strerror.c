@@ -1,9 +1,6 @@
-/*-
- * Copyright (c) 1991, 1993
+/*
+ * Copyright (c) 1988, 1993
  *	The Regents of the University of California.  All rights reserved.
- *
- * This code is derived from software contributed to Berkeley by
- * Margo Seltzer.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -34,81 +31,37 @@
  * SUCH DAMAGE.
  */
 
-#ifndef lint
-static char copyright[] =
-"@(#) Copyright (c) 1991, 1993\n\
-	The Regents of the University of California.  All rights reserved.\n";
-#endif /* not lint */
+#if defined(LIBC_SCCS) && !defined(lint)
+static char sccsid[] = "@(#)strerror.c	8.1 (Berkeley) 6/4/93";
+#endif /* LIBC_SCCS and not lint */
 
-#ifndef lint
-static char sccsid[] = "@(#)driver2.c	8.1 (Berkeley) 6/4/93";
-#endif /* not lint */
+#include <string.h>
 
-/*
- * Test driver, to try to tackle the large ugly-split problem.
- */
-
-#include <sys/file.h>
-#include <stdio.h>
-#include "ndbm.h"
-
-int my_hash(key, len)
-	char	*key;
-	int	len;
+char *
+strerror(num)
+	int num;
 {
-	return(17);		/* So I'm cruel... */
+	extern int sys_nerr;
+	extern char *sys_errlist[];
+#define	UPREFIX	"Unknown error: "
+	static char ebuf[40] = UPREFIX;		/* 64-bit number + slop */
+	register unsigned int errnum;
+	register char *p, *t;
+	char tmp[40];
+
+	errnum = num;				/* convert to unsigned */
+	if (errnum < sys_nerr)
+		return(sys_errlist[errnum]);
+
+	/* Do this by hand, so we don't include stdio(3). */
+	t = tmp;
+	do {
+		*t++ = "0123456789"[errnum % 10];
+	} while (errnum /= 10);
+	for (p = ebuf + sizeof(UPREFIX) - 1;;) {
+		*p++ = *--t;
+		if (t <= tmp)
+			break;
+	}
+	return(ebuf);
 }
-
-main(argc, argv)
-	int	argc;
-{
-	DB	*db;
-	DBT	key, content;
-	char	keybuf[2049];
-	char	contentbuf[2049];
-	char	buf[256];
-	int	i;
-	HASHINFO	info;
-
-	info.bsize = 1024;
-	info.ffactor = 5;
-	info.nelem = 1;
-	info.cachesize = NULL;
-#ifdef HASH_ID_PROGRAM_SPECIFIED
-	info.hash_id = HASH_ID_PROGRAM_SPECIFIED;
-	info.hash_func = my_hash;
-#else
-	info.hash = my_hash;
-#endif
-	info.lorder = 0;
-	if (!(db = dbopen("bigtest", O_RDWR | O_CREAT, 0644, DB_HASH, &info))) {
-		sprintf(buf, "dbopen: failed on file bigtest");
-		perror(buf);
-		exit(1);
-	}
-	srandom(17);
-	key.data = keybuf;
-	content.data = contentbuf;
-	bzero(keybuf, sizeof(keybuf));
-	bzero(contentbuf, sizeof(contentbuf));
-	for (i=1; i <= 500; i++) {
-		key.size = 128 + (random()&1023);
-		content.size = 128 + (random()&1023);
-/*		printf("%d: Key size %d, data size %d\n", i, key.size,
-		       content.size); */
-		sprintf(keybuf, "Key #%d", i);
-		sprintf(contentbuf, "Contents #%d", i);
-		if ((db->put)(db, &key, &content, R_NOOVERWRITE)) {
-			sprintf(buf, "dbm_store #%d", i);
-			perror(buf);
-		}
-	}
-	if ((db->close)(db)) {
-		perror("closing hash file");
-		exit(1);
-	}
-	exit(0);
-}
-
-	
-
