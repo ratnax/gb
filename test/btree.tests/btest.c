@@ -43,6 +43,7 @@ static char sccsid[] = "@(#)main.c	8.1 (Berkeley) 6/4/93";
 #include <db.h>
 #include <errno.h>
 #include <stdio.h>
+#include <unistd.h>
 #include <ctype.h>
 #include <stdlib.h>
 #include <string.h>
@@ -240,7 +241,7 @@ user(db)
 uselast:	last = i;
 		(*commands[i].func)(db, argv);
 	}
-	if ((db->sync)(db) == RET_ERROR)
+	if ((db->sync)(db, 0) == RET_ERROR)
 		perror("dbsync");
 	else if ((db->close)(db) == RET_ERROR)
 		perror("dbclose");
@@ -282,6 +283,7 @@ append(db, argv)
 		    "append only available for recno db's.\n");
 		return;
 	}
+#define R_APPEND 0
 	key.data = argv[1];
 	key.size = sizeof(recno_t);
 	data.data = argv[2];
@@ -612,9 +614,9 @@ load(db, argv)
 	FILE *fp;
 	DBT data, key;
 	recno_t cnt;
-	size_t len;
+	size_t len, llen = 0;
 	int status;
-	char *lp, buf[16 * 1024];
+	char *lp = NULL, buf[16 * 1024];
 
 	BUGdb = db;
 	if ((fp = fopen(argv[1], "r")) == NULL) {
@@ -623,7 +625,7 @@ load(db, argv)
 	}
 	(void)printf("loading %s...\n", argv[1]);
 
-	for (cnt = 1; (lp = fgetline(fp, &len)) != NULL; ++cnt) {
+	for (cnt = 1; (len = getline(&lp, &llen, fp)) != NULL; ++cnt) {
 		if (recno) {
 			key.data = &cnt;
 			key.size = sizeof(recno_t);
@@ -655,6 +657,7 @@ load(db, argv)
 			break;
 		}
 	}
+	if (lp) free(lp);
 	(void)fclose(fp);
 }
 

@@ -22,7 +22,8 @@ clean:
 	rm -f ${LIBDB} ${OBJ1} ${OBJ2} ${OBJ3} ${OBJ4} ${OBJ5} ${MISC}
 
 OORG=	-O
-CL=	${CC} -c -D__DBINTERFACE_PRIVATE ${OORG} -I. -Iinclude
+CL=    ${CC} -c -D__DBINTERFACE_PRIVATE ${OORG} -I. -Iinclude
+#CL=	${CC} -c -DSTATISTICS -DDEBUG -D__DBINTERFACE_PRIVATE ${OORG} -I. -Iinclude
 
 bt_close.o: btree/bt_close.c
 	${CL} -Ibtree btree/bt_close.c
