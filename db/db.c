@@ -58,17 +58,8 @@ dbopen(fname, flags, mode, type, openinfo)
 	 O_RDWR | O_SHLOCK | O_TRUNC)
 
 	if ((flags & ~(USE_OPEN_FLAGS | DB_FLAGS)) == 0)
-		switch (type) {
-		case DB_BTREE:
-			return (__bt_open(fname, flags & USE_OPEN_FLAGS,
+		return (__bt_open(fname, flags & USE_OPEN_FLAGS,
 			    mode, openinfo, flags & DB_FLAGS));
-		case DB_HASH:
-			return (__hash_open(fname, flags & USE_OPEN_FLAGS,
-			    mode, openinfo, flags & DB_FLAGS));
-		case DB_RECNO:
-			return (__rec_open(fname, flags & USE_OPEN_FLAGS,
-			    mode, openinfo, flags & DB_FLAGS));
-		}
 	errno = EINVAL;
 	return (NULL);
 }
