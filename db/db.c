@@ -85,6 +85,5 @@ __dbpanic(dbp)
 	dbp->fd = (int (*)())__dberr;
 	dbp->get = (int (*)())__dberr;
 	dbp->put = (int (*)())__dberr;
-	dbp->seq = (int (*)())__dberr;
 	dbp->sync = (int (*)())__dberr;
 }

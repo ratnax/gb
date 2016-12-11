@@ -88,7 +88,7 @@ __bt_ret(t, e, key, rkey, data, rdata, copy)
 		    &key->size, &rkey->data, &rkey->size))
 			return (RET_ERROR);
 		key->data = rkey->data;
-	} else if (copy || F_ISSET(t, B_DB_LOCK)) {
+	} else if (copy) {
 		if (bl->ksize > rkey->size) {
 			p = (void *)(rkey->data == NULL ?
 			    malloc(bl->ksize) : realloc(rkey->data, bl->ksize));
@@ -114,7 +114,7 @@ dataonly:
 		    &data->size, &rdata->data, &rdata->size))
 			return (RET_ERROR);
 		data->data = rdata->data;
-	} else if (copy || F_ISSET(t, B_DB_LOCK)) {
+	} else if (copy) {
 		/* Use +1 in case the first record retrieved is 0 length. */
 		if (bl->dsize + 1 > rdata->size) {
 			p = (void *)(rdata->data == NULL ?

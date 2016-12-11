@@ -164,10 +164,8 @@ __bt_open(fname, flags, mode, openinfo, dflags)
 	memset(t, 0, sizeof(BTREE));
 	t->bt_fd = -1;			/* Don't close unopened fd on error. */
 	t->bt_lorder = b.lorder;
-	t->bt_order = NOT;
 	t->bt_cmp = b.compare;
 	t->bt_pfx = b.prefix;
-	t->bt_rfd = -1;
 
 	if ((t->bt_dbp = dbp = (DB *)malloc(sizeof(DB))) == NULL)
 		goto err;
@@ -182,7 +180,6 @@ __bt_open(fname, flags, mode, openinfo, dflags)
 	dbp->fd = __bt_fd;
 	dbp->get = __bt_get;
 	dbp->put = __bt_put;
-	dbp->seq = __bt_seq;
 	dbp->sync = __bt_sync;
 
 	/*
@@ -252,7 +249,6 @@ __bt_open(fname, flags, mode, openinfo, dflags)
 		b.psize = m.psize;
 		F_SET(t, m.flags);
 		t->bt_free = m.free;
-		t->bt_nrecs = m.nrecs;
 	} else {
 		/*
 		 * Set the page size to the best value for I/O to this file.
@@ -271,7 +267,6 @@ __bt_open(fname, flags, mode, openinfo, dflags)
 			F_SET(t, B_NODUPS);
 
 		t->bt_free = P_INVALID;
-		t->bt_nrecs = 0;
 		F_SET(t, B_METADIRTY);
 	}
 
@@ -313,14 +308,6 @@ __bt_open(fname, flags, mode, openinfo, dflags)
 	/* Create a root page if new tree. */
 	if (nroot(t) == RET_ERROR)
 		goto err;
-
-	/* Global flags. */
-	if (dflags & DB_LOCK)
-		F_SET(t, B_DB_LOCK);
-	if (dflags & DB_SHMEM)
-		F_SET(t, B_DB_SHMEM);
-	if (dflags & DB_TXN)
-		F_SET(t, B_DB_TXN);
 
 	return (dbp);
 

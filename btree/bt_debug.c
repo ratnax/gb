@@ -66,8 +66,6 @@ __bt_dump(dbp)
 	t = dbp->internal;
 	(void)fprintf(stderr, "%s: pgsz %d",
 	    F_ISSET(t, B_INMEM) ? "memory" : "disk", t->bt_psize);
-	if (F_ISSET(t, R_RECNO))
-		(void)fprintf(stderr, " keys %lu", t->bt_nrecs);
 #undef X
 #define	X(flag, name) \
 	if (F_ISSET(t, flag)) { \
@@ -76,7 +74,6 @@ __bt_dump(dbp)
 	}
 	if (t->flags != 0) {
 		sep = " flags (";
-		X(R_FIXLEN,	"FIXLEN");
 		X(B_INMEM,	"INMEM");
 		X(B_NODUPS,	"NODUPS");
 		X(B_RDONLY,	"RDONLY");
@@ -159,8 +156,6 @@ __bt_dpage(h)
 {
 	BINTERNAL *bi;
 	BLEAF *bl;
-	RINTERNAL *ri;
-	RLEAF *rl;
 	indx_t cur, top;
 	char *sep;
 
@@ -174,8 +169,6 @@ __bt_dpage(h)
 	sep = "";
 	X(P_BINTERNAL,	"BINTERNAL")		/* types */
 	X(P_BLEAF,	"BLEAF")
-	X(P_RINTERNAL,	"RINTERNAL")		/* types */
-	X(P_RLEAF,	"RLEAF")
 	X(P_OVERFLOW,	"OVERFLOW")
 	X(P_PRESERVE,	"PRESERVE");
 	(void)fprintf(stderr, ")\n");
@@ -201,11 +194,6 @@ __bt_dpage(h)
 				(void)fprintf(stderr,
 				    " {%.*s}", (int)bi->ksize, bi->bytes);
 			break;
-		case P_RINTERNAL:
-			ri = GETRINTERNAL(h, cur);
-			(void)fprintf(stderr, "entries %03d pgno %03d",
-				ri->nrecs, ri->pgno);
-			break;
 		case P_BLEAF:
 			bl = GETBLEAF(h, cur);
 			if (bl->flags & P_BIGKEY)
@@ -225,105 +213,8 @@ __bt_dpage(h)
 				(void)fprintf(stderr, "%.*s",
 				    (int)bl->dsize, bl->bytes + bl->ksize);
 			break;
-		case P_RLEAF:
-			rl = GETRLEAF(h, cur);
-			if (rl->flags & P_BIGDATA)
-				(void)fprintf(stderr,
-				    "big data page %lu size %u",
-				    *(pgno_t *)rl->bytes,
-				    *(u_int32_t *)(rl->bytes + sizeof(pgno_t)));
-			else if (rl->dsize)
-				(void)fprintf(stderr,
-				    "%.*s", (int)rl->dsize, rl->bytes);
-			break;
 		}
 		(void)fprintf(stderr, "\n");
 	}
-}
-#endif
-
-#ifdef STATISTICS
-/*
- * BT_STAT -- Gather/print the tree statistics
- *
- * Parameters:
- *	dbp:	pointer to the DB
- */
-void
-__bt_stat(dbp)
-	DB *dbp;
-{
-	extern u_long bt_cache_hit, bt_cache_miss, bt_pfxsaved, bt_rootsplit;
-	extern u_long bt_sortsplit, bt_split;
-	BTREE *t;
-	PAGE *h;
-	pgno_t i, pcont, pinternal, pleaf;
-	u_long ifree, lfree, nkeys;
-	int levels;
-
-	t = dbp->internal;
-	pcont = pinternal = pleaf = 0;
-	nkeys = ifree = lfree = 0;
-	for (i = P_ROOT; (h = mpool_get(t->bt_mp, i, 0)) != NULL; ++i) {
-		switch (h->flags & P_TYPE) {
-		case P_BINTERNAL:
-		case P_RINTERNAL:
-			++pinternal;
-			ifree += h->upper - h->lower;
-			break;
-		case P_BLEAF:
-		case P_RLEAF:
-			++pleaf;
-			lfree += h->upper - h->lower;
-			nkeys += NEXTINDEX(h);
-			break;
-		case P_OVERFLOW:
-			++pcont;
-			break;
-		}
-		(void)mpool_put(t->bt_mp, h, 0);
-	}
-
-	/* Count the levels of the tree. */
-	for (i = P_ROOT, levels = 0 ;; ++levels) {
-		h = mpool_get(t->bt_mp, i, 0);
-		if (h->flags & (P_BLEAF|P_RLEAF)) {
-			if (levels == 0)
-				levels = 1;
-			(void)mpool_put(t->bt_mp, h, 0);
-			break;
-		}
-		i = F_ISSET(t, R_RECNO) ?
-		    GETRINTERNAL(h, 0)->pgno :
-		    GETBINTERNAL(h, 0)->pgno;
-		(void)mpool_put(t->bt_mp, h, 0);
-	}
-
-	(void)fprintf(stderr, "%d level%s with %ld keys",
-	    levels, levels == 1 ? "" : "s", nkeys);
-	if (F_ISSET(t, R_RECNO))
-		(void)fprintf(stderr, " (%ld header count)", t->bt_nrecs);
-	(void)fprintf(stderr,
-	    "\n%lu pages (leaf %ld, internal %ld, overflow %ld)\n",
-	    pinternal + pleaf + pcont, pleaf, pinternal, pcont);
-	(void)fprintf(stderr, "%ld cache hits, %ld cache misses\n",
-	    bt_cache_hit, bt_cache_miss);
-	(void)fprintf(stderr, "%ld splits (%ld root splits, %ld sort splits)\n",
-	    bt_split, bt_rootsplit, bt_sortsplit);
-	pleaf *= t->bt_psize - BTDATAOFF;
-	if (pleaf)
-		(void)fprintf(stderr,
-		    "%.0f%% leaf fill (%ld bytes used, %ld bytes free)\n",
-		    ((double)(pleaf - lfree) / pleaf) * 100,
-		    pleaf - lfree, lfree);
-	pinternal *= t->bt_psize - BTDATAOFF;
-	if (pinternal)
-		(void)fprintf(stderr,
-		    "%.0f%% internal fill (%ld bytes used, %ld bytes free\n",
-		    ((double)(pinternal - ifree) / pinternal) * 100,
-		    pinternal - ifree, ifree);
-	if (bt_pfxsaved)
-		(void)fprintf(stderr, "prefix checking removed %lu bytes.\n",
-		    bt_pfxsaved);
 }
 #endif

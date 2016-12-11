@@ -21,7 +21,7 @@ main()
 		exit 1
 	fi
 	
-	for t in 1 2 3 4 5 6 7 8 9; do
+	for t in 1 2 3 4 5 6; do
 		test$t
 	done
 	rm -f $TMP1 $TMP2 $TMP3
@@ -105,53 +105,10 @@ test3()
 	done
 }
 
-# Delete cursor record
+# Make sure that overflow pages are reused.
 test4()
 {
-	echo "Test 4: btree, delete cursor record"
-	echo "abcdefg abcdefg abcdefg abcdefg abcdefg abcdefg abcdefg" |
-	awk '{
-		for (i = 1; i <= 120; ++i)
-			printf("%05d: input key %d: %s\n", i, i, $0);
-		printf("%05d: input key %d: %s\n", 120, 120, $0);
-		printf("seq failed, no such key\n");
-		printf("%05d: input key %d: %s\n", 1, 1, $0);
-		printf("%05d: input key %d: %s\n", 2, 2, $0);
-		exit;
-	}' > $TMP1
-	rm -f $TMP2 $TMP3
-
-	for type in btree; do
-		cat $TMP1 |
-		awk '{
-			if (i == 120)
-				exit;
-			printf("p\nk%d\nd%s\n", ++i, $0);
-		}
-		END {
-			printf("fR_NEXT\n");
-			for (i = 1; i <= 120; ++i)
-				printf("s\n");
-			printf("fR_CURSOR\ns\nk120\n");
-			printf("r\n");
-			printf("fR_NEXT\ns\n");
-			printf("fR_CURSOR\ns\nk1\n");
-			printf("r\n");
-			printf("fR_FIRST\ns\n");
-		}' > $TMP2
-		$PROG -o $TMP3 recno $TMP2
-		if (cmp -s $TMP1 $TMP3) ; then :
-		else
-			echo "test4: type $type: failed"
-			exit 1
-		fi
-	done
-}
-
-# Make sure that overflow pages are reused.
-test5()
-{
-	echo "Test 5: btree, repeated small key, big data pairs"
+	echo "Test 4: btree, repeated small key, big data pairs"
 	rm -f $TMP1
 	echo "" | 
 	awk 'BEGIN {
@@ -171,94 +128,13 @@ test5()
 	# No explicit test for success.
 }
 
-# Test btree duplicate keys
-test6()
-{
-	echo "Test 6: btree: duplicate keys"
-	echo "abcdefg abcdefg abcdefg abcdefg abcdefg abcdefg abcdefg" |
-	awk '{
-		for (i = 1; i <= 543; ++i)
-			printf("%05d: input key %d: %s\n", i, i, $0);
-		exit;
-	}' > $TMP1
-	rm -f $TMP2 $TMP3
-
-	for type in btree; do
-		cat $TMP1 | 
-		awk '{
-			if (i++ % 2)
-				printf("p\nkduplicatekey\nd%s\n", $0);
-			else
-				printf("p\nkunique%dkey\nd%s\n", i, $0);
-		}
-		END {
-				printf("o\n");
-		}' > $TMP2
-		$PROG -iflags=1 -o $TMP3 $type $TMP2
-		sort -o $TMP3 $TMP3
-		if (cmp -s $TMP1 $TMP3) ; then :
-		else
-			echo "test6: type $type: failed"
-			exit 1
-		fi
-	done
-}
-
-# Test use of cursor flags without initialization
-test7()
-{
-	echo "Test 7: btree: test cursor flag use"
-	echo "abcdefg abcdefg abcdefg abcdefg abcdefg abcdefg abcdefg" |
-	awk '{
-		for (i = 1; i <= 20; ++i)
-			printf("%05d: input key %d: %s\n", i, i, $0);
-		exit;
-	}' > $TMP1
-	rm -f $TMP2 $TMP3
-
-	# Test that R_CURSOR doesn't succeed before cursor initialized
-	for type in btree; do
-		cat $TMP1 |
-		awk '{
-			if (i == 10)
-				exit;
-			printf("p\nk%d\nd%s\n", ++i, $0);
-		}
-		END {
-			printf("fR_CURSOR\nr\n");
-			printf("eR_CURSOR SHOULD HAVE FAILED\n");
-		}' > $TMP2
-		$PROG -o $TMP3 $type $TMP2 > /dev/null 2>&1
-		if [ -s $TMP3 ] ; then
-			echo "Test 7: delete: R_CURSOR SHOULD HAVE FAILED"
-			exit 1
-		fi
-	done
-	for type in btree; do
-		cat $TMP1 |
-		awk '{
-			if (i == 10)
-				exit;
-			printf("p\nk%d\nd%s\n", ++i, $0);
-		}
-		END {
-			printf("fR_CURSOR\np\nk1\ndsome data\n");
-			printf("eR_CURSOR SHOULD HAVE FAILED\n");
-		}' > $TMP2
-		$PROG -o $TMP3 $type $TMP2 > /dev/null 2>&1
-		if [ -s $TMP3 ] ; then
-			echo "Test 7: put: R_CURSOR SHOULD HAVE FAILED"
-			exit 1
-		fi
-	done
-}
 
 # Take the first 20000 entries in the dictionary, reverse them, and give
 # them each a small size data entry.  Use a small page size to make sure
 # the btree split code gets hammered.
-test8()
+test5()
 {
-	echo "Test 8: btree: lots of keys, small page size"
+	echo "Test 5: btree: lots of keys, small page size"
 	mdata=abcdefghijklmnopqrstuvwxy
 	echo $mdata |
 	awk '{ for (i = 1; i < 20001; ++i) print $0 }' > $TMP1
@@ -274,16 +150,16 @@ test8()
 		$PROG -i psize=512 -o $TMP3 $type $TMP2
 		if (cmp -s $TMP1 $TMP3) ; then :
 		else
-			echo "test8: type $type: failed"
+			echo "test5: type $type: failed"
 			exit 1
 		fi
 	done
 }
 
 # Test different byte orders.
-test9()
+test6()
 {
-	echo "Test 13: btree, differing byte orders"
+	echo "Test 6: btree, differing byte orders"
 	sed 50q $DICT > $TMP1
 	for order in 1234 4321; do
 		for type in btree;  do
@@ -298,7 +174,7 @@ test9()
 			$PROG -ilorder=$order -f byte.file -o $TMP3 $type $TMP2
 			if (cmp -s $TMP1 $TMP3) ; then :
 			else
-				echo "test9: $type/$order put failed"
+				echo "test6: $type/$order put failed"
 				exit 1
 			fi
 			for i in `sed 50q $DICT`; do
@@ -309,7 +185,7 @@ test9()
 			    -ilorder=$order -f byte.file -o $TMP3 $type $TMP2
 			if (cmp -s $TMP1 $TMP3) ; then :
 			else
-				echo "test9: $type/$order get failed"
+				echo "test6: $type/$order get failed"
 				exit 1
 			fi
 		done

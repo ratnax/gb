@@ -48,8 +48,6 @@ static char sccsid[] = "@(#)bt_put.c	8.8 (Berkeley) 7/26/94";
 #include <db.h>
 #include "btree.h"
 
-static EPG *bt_fast __P((BTREE *, const DBT *, const DBT *, int *));
-
 /*
  * __BT_PUT -- Add a btree item to the tree.
  *
@@ -94,25 +92,6 @@ __bt_put(dbp, key, data, flags)
 		return (RET_ERROR);
 	}
 
-	switch (flags) {
-	case 0:
-	case R_NOOVERWRITE:
-		break;
-	case R_CURSOR:
-		/*
-		 * If flags is R_CURSOR, put the cursor.  Must already
-		 * have started a scan and not have already deleted it.
-		 */
-		if (F_ISSET(&t->bt_cursor, CURS_INIT) &&
-		    !F_ISSET(&t->bt_cursor,
-		        CURS_ACQUIRE | CURS_AFTER | CURS_BEFORE))
-			break;
-		/* FALLTHROUGH */
-	default:
-		errno = EINVAL;
-		return (RET_ERROR);
-	}
-
 	/*
 	 * If the key/data pair won't fit on a page, store it on overflow
 	 * pages.  Only put the key on the overflow page if the pair are
@@ -149,21 +128,12 @@ storekey:		if (__ovfl_put(t, key, &pg) == RET_ERROR)
 			goto storekey;
 	}
 
-	/* Replace the cursor. */
-	if (flags == R_CURSOR) {
-		if ((h = mpool_get(t->bt_mp, t->bt_cursor.pg.pgno, 0)) == NULL)
-			return (RET_ERROR);
-		index = t->bt_cursor.pg.index;
-		goto delete;
-	}
-
 	/*
 	 * Find the key to delete, or, the location at which to insert.
 	 * Bt_fast and __bt_search both pin the returned page.
 	 */
-	if (t->bt_order == NOT || (e = bt_fast(t, key, data, &exact)) == NULL)
-		if ((e = __bt_search(t, key, &exact)) == NULL)
-			return (RET_ERROR);
+	if ((e = __bt_search(t, key, &exact)) == NULL)
+		return (RET_ERROR);
 	h = e->page;
 	index = e->index;
 
@@ -173,25 +143,9 @@ storekey:		if (__ovfl_put(t, key, &pg) == RET_ERROR)
 	 * R_NOOVERWRITE is not set, the key is either added (if duplicates are
 	 * permitted) or an error is returned.
 	 */
-	switch (flags) {
-	case R_NOOVERWRITE:
-		if (!exact)
-			break;
+	if (exact) {
 		mpool_put(t->bt_mp, h, 0);
 		return (RET_SPECIAL);
-	default:
-		if (!exact || !F_ISSET(t, B_NODUPS))
-			break;
-		/*
-		 * !!!
-		 * Note, the delete may empty the page, so we need to put a
-		 * new entry into the page immediately.
-		 */
-delete:		if (__bt_dleaf(t, key, h, index) == RET_ERROR) {
-			mpool_put(t->bt_mp, h, 0);
-			return (RET_ERROR);
-		}
-		break;
 	}
 
 	/*
@@ -217,104 +171,9 @@ delete:		if (__bt_dleaf(t, key, h, index) == RET_ERROR) {
 	dest = (char *)h + h->upper;
 	WR_BLEAF(dest, key, data, dflags);
 
-	/* If the cursor is on this page, adjust it as necessary. */
-	if (F_ISSET(&t->bt_cursor, CURS_INIT) &&
-	    !F_ISSET(&t->bt_cursor, CURS_ACQUIRE) &&
-	    t->bt_cursor.pg.pgno == h->pgno && t->bt_cursor.pg.index >= index)
-		++t->bt_cursor.pg.index;
-
-	if (t->bt_order == NOT)
-		if (h->nextpg == P_INVALID) {
-			if (index == NEXTINDEX(h) - 1) {
-				t->bt_order = FORWARD;
-				t->bt_last.index = index;
-				t->bt_last.pgno = h->pgno;
-			}
-		} else if (h->prevpg == P_INVALID) {
-			if (index == 0) {
-				t->bt_order = BACK;
-				t->bt_last.index = 0;
-				t->bt_last.pgno = h->pgno;
-			}
-		}
-
 	mpool_put(t->bt_mp, h, MPOOL_DIRTY);
 
 success:
-	if (flags == R_SETCURSOR)
-		__bt_setcur(t, e->page->pgno, e->index);
-
 	F_SET(t, B_MODIFIED);
 	return (RET_SUCCESS);
-}
-
-#ifdef STATISTICS
-u_long bt_cache_hit, bt_cache_miss;
-#endif
-
-/*
- * BT_FAST -- Do a quick check for sorted data.
- *
- * Parameters:
- *	t:	tree
- *	key:	key to insert
- *
- * Returns:
- * 	EPG for new record or NULL if not found.
- */
-static EPG *
-bt_fast(t, key, data, exactp)
-	BTREE *t;
-	const DBT *key, *data;
-	int *exactp;
-{
-	PAGE *h;
-	u_int32_t nbytes;
-	int cmp;
-
-	if ((h = mpool_get(t->bt_mp, t->bt_last.pgno, 0)) == NULL) {
-		t->bt_order = NOT;
-		return (NULL);
-	}
-	t->bt_cur.page = h;
-	t->bt_cur.index = t->bt_last.index;
-
-	/*
-	 * If won't fit in this page or have too many keys in this page,
-	 * have to search to get split stack.
-	 */
-	nbytes = NBLEAFDBT(key->size, data->size);
-	if (h->upper - h->lower < nbytes + sizeof(indx_t))
-		goto miss;
-
-	if (t->bt_order == FORWARD) {
-		if (t->bt_cur.page->nextpg != P_INVALID)
-			goto miss;
-		if (t->bt_cur.index != NEXTINDEX(h) - 1)
-			goto miss;
-		if ((cmp = __bt_cmp(t, key, &t->bt_cur)) < 0)
-			goto miss;
-		t->bt_last.index = cmp ? ++t->bt_cur.index : t->bt_cur.index;
-	} else {
-		if (t->bt_cur.page->prevpg != P_INVALID)
-			goto miss;
-		if (t->bt_cur.index != 0)
-			goto miss;
-		if ((cmp = __bt_cmp(t, key, &t->bt_cur)) > 0)
-			goto miss;
-		t->bt_last.index = 0;
-	}
-	*exactp = cmp == 0;
-#ifdef STATISTICS
-	++bt_cache_hit;
-#endif
-	return (&t->bt_cur);
-
-miss:
-#ifdef STATISTICS
-	++bt_cache_miss;
-#endif
-	t->bt_order = NOT;
-	mpool_put(t->bt_mp, h, 0);
-	return (NULL);
 }

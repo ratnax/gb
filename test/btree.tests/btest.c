@@ -60,53 +60,30 @@ typedef struct cmd_table {
 int stopstop;
 DB *globaldb;
 
-void append	__P((DB *, char **));
-void bstat	__P((DB *, char **));
-void cursor	__P((DB *, char **));
-void delcur	__P((DB *, char **));
 void delete	__P((DB *, char **));
 void dump	__P((DB *, char **));
 void first	__P((DB *, char **));
 void get	__P((DB *, char **));
 void help	__P((DB *, char **));
-void iafter	__P((DB *, char **));
-void ibefore	__P((DB *, char **));
-void icursor	__P((DB *, char **));
 void insert	__P((DB *, char **));
 void keydata	__P((DBT *, DBT *));
-void last	__P((DB *, char **));
-void list	__P((DB *, char **));
 void load	__P((DB *, char **));
 void mstat	__P((DB *, char **));
-void next	__P((DB *, char **));
 int  parse	__P((char *, char **, int));
-void previous	__P((DB *, char **));
 void show	__P((DB *, char **));
 void usage	__P((void));
 void user	__P((DB *));
 
 cmd_table commands[] = {
 	"?",	0, 0, help, "help", NULL,
-	"a",	2, 1, append, "append key def", "append key with data def",
-	"b",	0, 0, bstat, "bstat", "stat btree",
-	"c",	1, 1, cursor,  "cursor word", "move cursor to word",
-	"delc",	0, 0, delcur, "delcur", "delete key the cursor references",
 	"dele",	1, 1, delete, "delete word", "delete word",
 	"d",	0, 0, dump, "dump", "dump database",
-	"f",	0, 0, first, "first", "move cursor to first record",
 	"g",	1, 1, get, "get key", "locate key",
 	"h",	0, 0, help, "help", "print command summary",
-	"ia",	2, 1, iafter, "iafter key data", "insert data after key",
-	"ib",	2, 1, ibefore, "ibefore key data", "insert data before key",
-	"ic",	2, 1, icursor, "icursor key data", "replace cursor",
 	"in",	2, 1, insert, "insert key def", "insert key with data def",
-	"la",	0, 0, last, "last", "move cursor to last record",
-	"li",	1, 1, list, "list file", "list to a file",
 	"loa",	1, 0, load, "load file", NULL,
 	"loc",	1, 1, get, "get key", NULL,
 	"m",	0, 0, mstat, "mstat", "stat memory pool",
-	"n",	0, 0, next, "next", "move cursor forward one record",
-	"p",	0, 0, previous, "previous", "move cursor back one record",
 	"q",	0, 0, NULL, "quit", "quit",
 	"sh",	1, 0, show, "show page", "dump a page",
 	{ NULL },
@@ -156,9 +133,6 @@ main(argc, argv)
 		case 'p':
 			b.psize = atoi(optarg);
 			break;
-		case 'r':
-			recno = 1;
-			break;
 		case 'u':
 			b.flags = 0;
 			break;
@@ -169,12 +143,8 @@ main(argc, argv)
 	argc -= optind;
 	argv += optind;
 
-	if (recno)
-		db = dbopen(*argv == NULL ? NULL : *argv, O_RDWR,
-		    0, DB_RECNO, NULL);
-	else
-		db = dbopen(*argv == NULL ? NULL : *argv, O_CREAT|O_RDWR,
-		    0600, DB_BTREE, &b);
+	db = dbopen(*argv == NULL ? NULL : *argv, O_CREAT|O_RDWR,
+	    0600, DB_BTREE, &b);
 
 	if (db == NULL) {
 		(void)fprintf(stderr, "dbopen: %s\n", strerror(errno));
@@ -271,77 +241,6 @@ parse(lbuf, argv, maxargc)
 }
 
 void
-append(db, argv)
-	DB *db;
-	char **argv;
-{
-	DBT key, data;
-	int status;
-
-	if (!recno) {
-		(void)fprintf(stderr,
-		    "append only available for recno db's.\n");
-		return;
-	}
-#define R_APPEND 0
-	key.data = argv[1];
-	key.size = sizeof(recno_t);
-	data.data = argv[2];
-	data.size = strlen(data.data);
-	status = (db->put)(db, &key, &data, R_APPEND);
-	switch (status) {
-	case RET_ERROR:
-		perror("append/put");
-		break;
-	case RET_SPECIAL:
-		(void)printf("%s (duplicate key)\n", argv[1]);
-		break;
-	case RET_SUCCESS:
-		break;
-	}
-}
-
-void
-cursor(db, argv)
-	DB *db;
-	char **argv;
-{
-	DBT data, key;
-	int status;
-
-	key.data = argv[1];
-	if (recno)
-		key.size = sizeof(recno_t);
-	else
-		key.size = strlen(argv[1]) + 1;
-	status = (*db->seq)(db, &key, &data, R_CURSOR);
-	switch (status) {
-	case RET_ERROR:
-		perror("cursor/seq");
-		break;
-	case RET_SPECIAL:
-		(void)printf("key not found\n");
-		break;
-	case RET_SUCCESS:
-		keydata(&key, &data);
-		break;
-	}
-}
-
-void
-delcur(db, argv)
-	DB *db;
-	char **argv;
-{
-	int status;
-
-	status = (*db->del)(db, NULL, R_CURSOR);
-
-	if (status == RET_ERROR)
-		perror("delcur/del");
-}
-
-void
 delete(db, argv)
 	DB *db;
 	char **argv;
@@ -376,28 +275,6 @@ dump(db, argv)
 	__bt_dump(db);
 }
 
-void
-first(db, argv)
-	DB *db;
-	char **argv;
-{
-	DBT data, key;
-	int status;
-
-	status = (*db->seq)(db, &key, &data, R_FIRST);
-
-	switch (status) {
-	case RET_ERROR:
-		perror("first/seq");
-		break;
-	case RET_SPECIAL:
-		(void)printf("no more keys\n");
-		break;
-	case RET_SUCCESS:
-		keydata(&key, &data);
-		break;
-	}
-}
 
 void
 get(db, argv)
@@ -441,94 +318,6 @@ help(db, argv)
 			    commands[i].usage, commands[i].descrip);
 }
 
-void
-iafter(db, argv)
-	DB *db;
-	char **argv;
-{
-	DBT key, data;
-	int status;
-
-	if (!recno) {
-		(void)fprintf(stderr,
-		    "iafter only available for recno db's.\n");
-		return;
-	}
-	key.data = argv[1];
-	key.size = sizeof(recno_t);
-	data.data = argv[2];
-	data.size = strlen(data.data);
-	status = (db->put)(db, &key, &data, R_IAFTER);
-	switch (status) {
-	case RET_ERROR:
-		perror("iafter/put");
-		break;
-	case RET_SPECIAL:
-		(void)printf("%s (duplicate key)\n", argv[1]);
-		break;
-	case RET_SUCCESS:
-		break;
-	}
-}
-
-void
-ibefore(db, argv)
-	DB *db;
-	char **argv;
-{
-	DBT key, data;
-	int status;
-
-	if (!recno) {
-		(void)fprintf(stderr,
-		    "ibefore only available for recno db's.\n");
-		return;
-	}
-	key.data = argv[1];
-	key.size = sizeof(recno_t);
-	data.data = argv[2];
-	data.size = strlen(data.data);
-	status = (db->put)(db, &key, &data, R_IBEFORE);
-	switch (status) {
-	case RET_ERROR:
-		perror("ibefore/put");
-		break;
-	case RET_SPECIAL:
-		(void)printf("%s (duplicate key)\n", argv[1]);
-		break;
-	case RET_SUCCESS:
-		break;
-	}
-}
-
-void
-icursor(db, argv)
-	DB *db;
-	char **argv;
-{
-	int status;
-	DBT data, key;
-
-	key.data = argv[1];
-	if (recno)
-		key.size = sizeof(recno_t);
-	else
-		key.size = strlen(argv[1]) + 1;
-	data.data = argv[2];
-	data.size = strlen(argv[2]) + 1;
-
-	status = (*db->put)(db, &key, &data, R_CURSOR);
-	switch (status) {
-	case RET_ERROR:
-		perror("icursor/put");
-		break;
-	case RET_SPECIAL:
-		(void)printf("%s (duplicate key)\n", argv[1]);
-		break;
-	case RET_SUCCESS:
-		break;
-	}
-}
 
 void
 insert(db, argv)
@@ -546,7 +335,7 @@ insert(db, argv)
 	data.data = argv[2];
 	data.size = strlen(argv[2]) + 1;
 
-	status = (*db->put)(db, &key, &data, R_NOOVERWRITE);
+	status = (*db->put)(db, &key, &data, 0);
 	switch (status) {
 	case RET_ERROR:
 		perror("insert/put");
@@ -557,51 +346,6 @@ insert(db, argv)
 	case RET_SUCCESS:
 		break;
 	}
-}
-
-void
-last(db, argv)
-	DB *db;
-	char **argv;
-{
-	DBT data, key;
-	int status;
-
-	status = (*db->seq)(db, &key, &data, R_LAST);
-
-	switch (status) {
-	case RET_ERROR:
-		perror("last/seq");
-		break;
-	case RET_SPECIAL:
-		(void)printf("no more keys\n");
-		break;
-	case RET_SUCCESS:
-		keydata(&key, &data);
-		break;
-	}
-}
-
-void
-list(db, argv)
-	DB *db;
-	char **argv;
-{
-	DBT data, key;
-	FILE *fp;
-	int status;
-
-	if ((fp = fopen(argv[1], "w")) == NULL) {
-		(void)fprintf(stderr, "%s: %s\n", argv[1], strerror(errno));
-		return;
-	}
-	status = (*db->seq)(db, &key, &data, R_FIRST);
-	while (status == RET_SUCCESS) {
-		(void)fprintf(fp, "%s\n", key.data);
-		status = (*db->seq)(db, &key, &data, R_NEXT);
-	}
-	if (status == RET_ERROR)
-		perror("list/seq");
 }
 
 DB *BUGdb;
@@ -640,7 +384,7 @@ load(db, argv)
 			data.size = len + 1;
 		}
 
-		status = (*db->put)(db, &key, &data, R_NOOVERWRITE);
+		status = (*db->put)(db, &key, &data, 0);
 		switch (status) {
 		case RET_ERROR:
 			perror("load/put");
@@ -660,53 +404,6 @@ load(db, argv)
 	if (lp) free(lp);
 	(void)fclose(fp);
 }
-
-void
-next(db, argv)
-	DB *db;
-	char **argv;
-{
-	DBT data, key;
-	int status;
-
-	status = (*db->seq)(db, &key, &data, R_NEXT);
-
-	switch (status) {
-	case RET_ERROR:
-		perror("next/seq");
-		break;
-	case RET_SPECIAL:
-		(void)printf("no more keys\n");
-		break;
-	case RET_SUCCESS:
-		keydata(&key, &data);
-		break;
-	}
-}
-
-void
-previous(db, argv)
-	DB *db;
-	char **argv;
-{
-	DBT data, key;
-	int status;
-
-	status = (*db->seq)(db, &key, &data, R_PREV);
-
-	switch (status) {
-	case RET_ERROR:
-		perror("previous/seq");
-		break;
-	case RET_SPECIAL:
-		(void)printf("no more keys\n");
-		break;
-	case RET_SUCCESS:
-		keydata(&key, &data);
-		break;
-	}
-}
-
 void
 show(db, argv)
 	DB *db;
@@ -727,15 +424,6 @@ show(db, argv)
 	else
 		__bt_dpage(h);
 	mpool_put(t->bt_mp, h, 0);
-}
-
-void
-bstat(db, argv)
-	DB *db;
-	char **argv;
-{
-	(void)printf("BTREE\n");
-	__bt_stat(db);
 }
 
 void

@@ -48,10 +48,8 @@ static char sccsid[] = "@(#)bt_delete.c	8.13 (Berkeley) 7/28/94";
 #include "btree.h"
 
 static int __bt_bdelete __P((BTREE *, const DBT *));
-static int __bt_curdel __P((BTREE *, const DBT *, PAGE *, u_int));
 static int __bt_pdelete __P((BTREE *, PAGE *));
 static int __bt_relink __P((BTREE *, PAGE *));
-static int __bt_stkacq __P((BTREE *, PAGE **, CURSOR *));
 
 /*
  * __bt_delete
@@ -66,7 +64,6 @@ __bt_delete(dbp, key, flags)
 	u_int flags;
 {
 	BTREE *t;
-	CURSOR *c;
 	PAGE *h;
 	int status;
 
@@ -84,196 +81,9 @@ __bt_delete(dbp, key, flags)
 		return (RET_ERROR);
 	}
 
-	switch (flags) {
-	case 0:
-		status = __bt_bdelete(t, key);
-		break;
-	case R_CURSOR:
-		/*
-		 * If flags is R_CURSOR, delete the cursor.  Must already
-		 * have started a scan and not have already deleted it.
-		 */
-		c = &t->bt_cursor;
-		if (F_ISSET(c, CURS_INIT)) {
-			if (F_ISSET(c, CURS_ACQUIRE | CURS_AFTER | CURS_BEFORE))
-				return (RET_SPECIAL);
-			if ((h = mpool_get(t->bt_mp, c->pg.pgno, 0)) == NULL)
-				return (RET_ERROR);
-
-			/*
-			 * If the page is about to be emptied, we'll need to
-			 * delete it, which means we have to acquire a stack.
-			 */
-			if (NEXTINDEX(h) == 1)
-				if (__bt_stkacq(t, &h, &t->bt_cursor))
-					return (RET_ERROR);
-
-			status = __bt_dleaf(t, NULL, h, c->pg.index);
-
-			if (NEXTINDEX(h) == 0 && status == RET_SUCCESS) {
-				if (__bt_pdelete(t, h))
-					return (RET_ERROR);
-			} else
-				mpool_put(t->bt_mp,
-				    h, status == RET_SUCCESS ? MPOOL_DIRTY : 0);
-			break;
-		}
-		/* FALLTHROUGH */
-	default:
-		errno = EINVAL;
-		return (RET_ERROR);
-	}
-	if (status == RET_SUCCESS)
+	if ((status = __bt_bdelete(t, key)) == RET_SUCCESS) 
 		F_SET(t, B_MODIFIED);
 	return (status);
-}
-
-/*
- * __bt_stkacq --
- *	Acquire a stack so we can delete a cursor entry.
- *
- * Parameters:
- *	  t:	tree
- *	 hp:	pointer to current, pinned PAGE pointer
- *	  c:	pointer to the cursor
- *
- * Returns:
- *	0 on success, 1 on failure
- */
-static int
-__bt_stkacq(t, hp, c)
-	BTREE *t;
-	PAGE **hp;
-	CURSOR *c;
-{
-	BINTERNAL *bi;
-	EPG *e;
-	EPGNO *parent;
-	PAGE *h;
-	indx_t index;
-	pgno_t pgno;
-	recno_t nextpg, prevpg;
-	int exact, level;
-	
-	/*
-	 * Find the first occurrence of the key in the tree.  Toss the
-	 * currently locked page so we don't hit an already-locked page.
-	 */
-	h = *hp;
-	mpool_put(t->bt_mp, h, 0);
-	if ((e = __bt_search(t, &c->key, &exact)) == NULL)
-		return (1);
-	h = e->page;
-
-	/* See if we got it in one shot. */
-	if (h->pgno == c->pg.pgno)
-		goto ret;
-
-	/*
-	 * Move right, looking for the page.  At each move we have to move
-	 * up the stack until we don't have to move to the next page.  If
-	 * we have to change pages at an internal level, we have to fix the
-	 * stack back up.
-	 */
-	while (h->pgno != c->pg.pgno) {
-		if ((nextpg = h->nextpg) == P_INVALID)
-			break;
-		mpool_put(t->bt_mp, h, 0);
-
-		/* Move up the stack. */
-		for (level = 0; (parent = BT_POP(t)) != NULL; ++level) {
-			/* Get the parent page. */
-			if ((h = mpool_get(t->bt_mp, parent->pgno, 0)) == NULL)
-				return (1);
-
-			/* Move to the next index. */
-			if (parent->index != NEXTINDEX(h) - 1) {
-				index = parent->index + 1;
-				BT_PUSH(t, h->pgno, index);
-				break;
-			}
-			mpool_put(t->bt_mp, h, 0);
-		}
-
-		/* Restore the stack. */
-		while (level--) {
-			/* Push the next level down onto the stack. */
-			bi = GETBINTERNAL(h, index);
-			pgno = bi->pgno;
-			BT_PUSH(t, pgno, 0);
-
-			/* Lose the currently pinned page. */
-			mpool_put(t->bt_mp, h, 0);
-
-			/* Get the next level down. */
-			if ((h = mpool_get(t->bt_mp, pgno, 0)) == NULL)
-				return (1);
-			index = 0;
-		}
-		mpool_put(t->bt_mp, h, 0);
-		if ((h = mpool_get(t->bt_mp, nextpg, 0)) == NULL)
-			return (1);
-	}
-
-	if (h->pgno == c->pg.pgno)
-		goto ret;
-
-	/* Reacquire the original stack. */
-	mpool_put(t->bt_mp, h, 0);
-	if ((e = __bt_search(t, &c->key, &exact)) == NULL)
-		return (1);
-	h = e->page;
-
-	/*
-	 * Move left, looking for the page.  At each move we have to move
-	 * up the stack until we don't have to change pages to move to the
-	 * next page.  If we have to change pages at an internal level, we
-	 * have to fix the stack back up.
-	 */
-	while (h->pgno != c->pg.pgno) {
-		if ((prevpg = h->prevpg) == P_INVALID)
-			break;
-		mpool_put(t->bt_mp, h, 0);
-
-		/* Move up the stack. */
-		for (level = 0; (parent = BT_POP(t)) != NULL; ++level) {
-			/* Get the parent page. */
-			if ((h = mpool_get(t->bt_mp, parent->pgno, 0)) == NULL)
-				return (1);
-
-			/* Move to the next index. */
-			if (parent->index != 0) {
-				index = parent->index - 1;
-				BT_PUSH(t, h->pgno, index);
-				break;
-			}
-			mpool_put(t->bt_mp, h, 0);
-		}
-
-		/* Restore the stack. */
-		while (level--) {
-			/* Push the next level down onto the stack. */
-			bi = GETBINTERNAL(h, index);
-			pgno = bi->pgno;
-
-			/* Lose the currently pinned page. */
-			mpool_put(t->bt_mp, h, 0);
-
-			/* Get the next level down. */
-			if ((h = mpool_get(t->bt_mp, pgno, 0)) == NULL)
-				return (1);
-
-			index = NEXTINDEX(h) - 1;
-			BT_PUSH(t, pgno, index);
-		}
-		mpool_put(t->bt_mp, h, 0);
-		if ((h = mpool_get(t->bt_mp, prevpg, 0)) == NULL)
-			return (1);
-	}
-	
-
-ret:	mpool_put(t->bt_mp, h, 0);
-	return ((*hp = mpool_get(t->bt_mp, c->pg.pgno, 0)) == NULL);
 }
 
 /*
@@ -483,13 +293,6 @@ __bt_dleaf(t, key, h, index)
 	void *to;
 	char *from;
 
-	/* If this record is referenced by the cursor, delete the cursor. */
-	if (F_ISSET(&t->bt_cursor, CURS_INIT) &&
-	    !F_ISSET(&t->bt_cursor, CURS_ACQUIRE) &&
-	    t->bt_cursor.pg.pgno == h->pgno && t->bt_cursor.pg.index == index &&
-	    __bt_curdel(t, key, h, index))
-		return (RET_ERROR);
-
 	/* If the entry uses overflow pages, make them available for reuse. */
 	to = bl = GETBLEAF(h, index);
 	if (bl->flags & P_BIGKEY && __ovfl_delete(t, bl->bytes) == RET_ERROR)
@@ -513,117 +316,7 @@ __bt_dleaf(t, key, h, index)
 		ip[0] = ip[1] < offset ? ip[1] + nbytes : ip[1];
 	h->lower -= sizeof(indx_t);
 
-	/* If the cursor is on this page, adjust it as necessary. */
-	if (F_ISSET(&t->bt_cursor, CURS_INIT) &&
-	    !F_ISSET(&t->bt_cursor, CURS_ACQUIRE) &&
-	    t->bt_cursor.pg.pgno == h->pgno && t->bt_cursor.pg.index > index)
-		--t->bt_cursor.pg.index;
-
 	return (RET_SUCCESS);
-}
-
-/*
- * __bt_curdel --
- *	Delete the cursor.
- *
- * Parameters:
- *	t:	tree
- *    key:	referenced key (or NULL)
- *	h:	page
- *  index:	index on page to delete
- *
- * Returns:
- *	RET_SUCCESS, RET_ERROR.
- */
-static int
-__bt_curdel(t, key, h, index)
-	BTREE *t;
-	const DBT *key;
-	PAGE *h;
-	u_int index;
-{
-	CURSOR *c;
-	EPG e;
-	PAGE *pg;
-	int curcopy, status;
-
-	/*
-	 * If there are duplicates, move forward or backward to one.
-	 * Otherwise, copy the key into the cursor area.
-	 */
-	c = &t->bt_cursor;
-	F_CLR(c, CURS_AFTER | CURS_BEFORE | CURS_ACQUIRE);
-
-	curcopy = 0;
-	if (!F_ISSET(t, B_NODUPS)) {
-		/*
-		 * We're going to have to do comparisons.  If we weren't
-		 * provided a copy of the key, i.e. the user is deleting
-		 * the current cursor position, get one.
-		 */
-		if (key == NULL) {
-			e.page = h;
-			e.index = index;
-			if ((status = __bt_ret(t, &e,
-			    &c->key, &c->key, NULL, NULL, 1)) != RET_SUCCESS)
-				return (status);
-			curcopy = 1;
-			key = &c->key;
-		}
-		/* Check previous key, if not at the beginning of the page. */
-		if (index > 0) { 
-			e.page = h;
-			e.index = index - 1;
-			if (__bt_cmp(t, key, &e) == 0) {
-				F_SET(c, CURS_BEFORE);
-				goto dup2;
-			}
-		}
-		/* Check next key, if not at the end of the page. */
-		if (index < NEXTINDEX(h) - 1) {
-			e.page = h;
-			e.index = index + 1;
-			if (__bt_cmp(t, key, &e) == 0) {
-				F_SET(c, CURS_AFTER);
-				goto dup2;
-			}
-		}
-		/* Check previous key if at the beginning of the page. */
-		if (index == 0 && h->prevpg != P_INVALID) {
-			if ((pg = mpool_get(t->bt_mp, h->prevpg, 0)) == NULL)
-				return (RET_ERROR);
-			e.page = pg;
-			e.index = NEXTINDEX(pg) - 1;
-			if (__bt_cmp(t, key, &e) == 0) {
-				F_SET(c, CURS_BEFORE);
-				goto dup1;
-			}
-			mpool_put(t->bt_mp, pg, 0);
-		}
-		/* Check next key if at the end of the page. */
-		if (index == NEXTINDEX(h) - 1 && h->nextpg != P_INVALID) {
-			if ((pg = mpool_get(t->bt_mp, h->nextpg, 0)) == NULL)
-				return (RET_ERROR);
-			e.page = pg;
-			e.index = 0;
-			if (__bt_cmp(t, key, &e) == 0) {
-				F_SET(c, CURS_AFTER);
-dup1:				mpool_put(t->bt_mp, pg, 0);
-dup2:				c->pg.pgno = e.page->pgno;
-				c->pg.index = e.index;
-				return (RET_SUCCESS);
-			}
-			mpool_put(t->bt_mp, pg, 0);
-		}
-	}
-	e.page = h;
-	e.index = index;
-	if (curcopy || (status =
-	    __bt_ret(t, &e, &c->key, &c->key, NULL, NULL, 1)) == RET_SUCCESS) {
-		F_SET(c, CURS_ACQUIRE);
-		return (RET_SUCCESS);
-	}
-	return (status);
 }
 
 /*

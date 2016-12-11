@@ -93,13 +93,6 @@ __bt_get(dbp, key, data, flags)
 
 	status = __bt_ret(t, e, NULL, NULL, data, &t->bt_rdata, 0);
 
-	/*
-	 * If the user is doing concurrent access, we copied the
-	 * key/data, toss the page.
-	 */
-	if (F_ISSET(t, B_DB_LOCK))
-		mpool_put(t->bt_mp, e->page, 0);
-	else
-		t->bt_pinned = e->page;
+	t->bt_pinned = e->page;
 	return (status);
 }

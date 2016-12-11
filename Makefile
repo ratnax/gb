@@ -4,7 +4,7 @@ LIBDB=	libdb.a
 
 OBJ1=
 OBJ2=	bt_close.o bt_conv.o bt_debug.o bt_delete.o bt_get.o bt_open.o \
-	bt_overflow.o bt_page.o bt_put.o bt_search.o bt_seq.o bt_split.o \
+	bt_overflow.o bt_page.o bt_put.o bt_search.o bt_split.o \
 	bt_utils.o
 OBJ3=	db.o
 OBJ4=	mpool.o
@@ -45,8 +45,6 @@ bt_put.o: btree/bt_put.c
 	${CL} -Ibtree btree/bt_put.c
 bt_search.o: btree/bt_search.c
 	${CL} -Ibtree btree/bt_search.c
-bt_seq.o: btree/bt_seq.c
-	${CL} -Ibtree btree/bt_seq.c
 bt_split.o: btree/bt_split.c
 	${CL} -Ibtree btree/bt_split.c
 bt_stack.o: btree/bt_stack.c

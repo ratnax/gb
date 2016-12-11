@@ -83,12 +83,6 @@ __bt_close(dbp)
 	if (mpool_close(t->bt_mp) == RET_ERROR)
 		return (RET_ERROR);
 
-	/* Free random memory. */
-	if (t->bt_cursor.key.data != NULL) {
-		free(t->bt_cursor.key.data);
-		t->bt_cursor.key.size = 0;
-		t->bt_cursor.key.data = NULL;
-	}
 	if (t->bt_rkey.data) {
 		free(t->bt_rkey.data);
 		t->bt_rkey.size = 0;
@@ -173,7 +167,6 @@ bt_meta(t)
 	m.version = BTREEVERSION;
 	m.psize = t->bt_psize;
 	m.free = t->bt_free;
-	m.nrecs = t->bt_nrecs;
 	m.flags = F_ISSET(t, SAVEMETA);
 
 	memmove(p, &m, sizeof(BTMETA));

@@ -45,9 +45,6 @@ static char sccsid[] = "@(#)bt_search.c	8.8 (Berkeley) 7/31/94";
 #include <db.h>
 #include "btree.h"
 
-static int __bt_snext __P((BTREE *, PAGE *, const DBT *, int *));
-static int __bt_sprev __P((BTREE *, PAGE *, const DBT *, int *));
-
 /*
  * __bt_search --
  *	Search a btree for a key.
@@ -104,16 +101,6 @@ __bt_search(t, key, exactp)
 		 * end of a page, check the adjacent page.
 		 */
 		if (h->flags & P_BLEAF) {
-			if (!F_ISSET(t, B_NODUPS)) {
-				if (base == 0 &&
-				    h->prevpg != P_INVALID &&
-				    __bt_sprev(t, h, key, exactp))
-					return (&t->bt_cur);
-				if (base == NEXTINDEX(h) &&
-				    h->nextpg != P_INVALID &&
-				    __bt_snext(t, h, key, exactp))
-					return (&t->bt_cur);
-			}
 			*exactp = 0;
 			t->bt_cur.index = base;
 			return (&t->bt_cur);
@@ -132,82 +119,4 @@ next:		BT_PUSH(t, h->pgno, index);
 		pg = GETBINTERNAL(h, index)->pgno;
 		mpool_put(t->bt_mp, h, 0);
 	}
-}
-
-/*
- * __bt_snext --
- *	Check for an exact match after the key.
- *
- * Parameters:
- *	t:	tree
- *	h:	current page
- *	key:	key
- *	exactp:	pointer to exact match flag
- *
- * Returns:
- *	If an exact match found.
- */
-static int
-__bt_snext(t, h, key, exactp)
-	BTREE *t;
-	PAGE *h;
-	const DBT *key;
-	int *exactp;
-{
-	EPG e;
-
-	/*
-	 * Get the next page.  The key is either an exact
-	 * match, or not as good as the one we already have.
-	 */
-	if ((e.page = mpool_get(t->bt_mp, h->nextpg, 0)) == NULL)
-		return (0);
-	e.index = 0;
-	if (__bt_cmp(t, key, &e) == 0) {
-		mpool_put(t->bt_mp, h, 0);
-		t->bt_cur = e;
-		*exactp = 1;
-		return (1);
-	}
-	mpool_put(t->bt_mp, e.page, 0);
-	return (0);
-}
-
-/*
- * __bt_sprev --
- *	Check for an exact match before the key.
- *
- * Parameters:
- *	t:	tree
- *	h:	current page
- *	key:	key
- *	exactp:	pointer to exact match flag
- *
- * Returns:
- *	If an exact match found.
- */
-static int
-__bt_sprev(t, h, key, exactp)
-	BTREE *t;
-	PAGE *h;
-	const DBT *key;
-	int *exactp;
-{
-	EPG e;
-
-	/*
-	 * Get the previous page.  The key is either an exact
-	 * match, or not as good as the one we already have.
-	 */
-	if ((e.page = mpool_get(t->bt_mp, h->prevpg, 0)) == NULL)
-		return (0);
-	e.index = NEXTINDEX(e.page) - 1;
-	if (__bt_cmp(t, key, &e) == 0) {
-		mpool_put(t->bt_mp, h, 0);
-		t->bt_cur = e;
-		*exactp = 1;
-		return (1);
-	}
-	mpool_put(t->bt_mp, e.page, 0);
-	return (0);
 }

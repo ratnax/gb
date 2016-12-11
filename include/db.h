@@ -76,20 +76,7 @@ typedef struct {
 	size_t	 size;			/* data length */
 } DBT;
 
-/* Routine flags. */
-#define	R_CURSOR	1		/* del, put, seq */
-#define	__R_UNUSED	2		/* UNUSED */
-#define	R_FIRST		3		/* seq */
-#define	R_IAFTER	4		/* put (RECNO) */
-#define	R_IBEFORE	5		/* put (RECNO) */
-#define	R_LAST		6		/* seq (BTREE, RECNO) */
-#define	R_NEXT		7		/* seq */
-#define	R_NOOVERWRITE	8		/* put */
-#define	R_PREV		9		/* seq (BTREE, RECNO) */
-#define	R_SETCURSOR	10		/* put (RECNO) */
-#define	R_RECNOSYNC	11		/* sync (RECNO) */
-
-typedef enum { DB_BTREE, DB_HASH, DB_RECNO } DBTYPE;
+typedef enum { DB_BTREE} DBTYPE;
 
 /*
  * !!!
@@ -121,7 +108,6 @@ typedef struct __db {
 	int (*del)	__P((const struct __db *, const DBT *, u_int));
 	int (*get)	__P((const struct __db *, const DBT *, DBT *, u_int));
 	int (*put)	__P((const struct __db *, DBT *, const DBT *, u_int));
-	int (*seq)	__P((const struct __db *, DBT *, DBT *, u_int));
 	int (*sync)	__P((const struct __db *, u_int));
 	void *internal;			/* Access method private. */
 	int (*fd)	__P((const struct __db *));
@@ -228,8 +214,6 @@ DB *dbopen __P((const char *, int, int, DBTYPE, const void *));
 
 #ifdef __DBINTERFACE_PRIVATE
 DB	*__bt_open __P((const char *, int, int, const BTREEINFO *, int));
-DB	*__hash_open __P((const char *, int, int, const HASHINFO *, int));
-DB	*__rec_open __P((const char *, int, int, const RECNOINFO *, int));
 void	 __dbpanic __P((DB *dbp));
 #endif
 __END_DECLS

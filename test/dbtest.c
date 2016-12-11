@@ -55,11 +55,10 @@ static char sccsid[] = "@(#)dbtest.c	8.17 (Berkeley) 9/1/94";
 
 #include <db.h>
 
-enum S { COMMAND, COMPARE, GET, PUT, REMOVE, SEQ, SEQFLAG, KEY, DATA };
+enum S { COMMAND, COMPARE, GET, PUT, REMOVE, KEY, DATA };
 
 void	 compare __P((DBT *, DBT *));
 DBTYPE	 dbtype __P((char *));
-void	 dump __P((DB *, int));
 void	 err __P((const char *, ...));
 void	 get __P((DB *, DBT *));
 void	 getdata __P((DB *, DBT *, DBT *));
@@ -68,7 +67,6 @@ void	 rem __P((DB *, DBT *));
 char	*sflags __P((int));
 void	 synk __P((DB *));
 void	*rfile __P((char *, size_t *));
-void	 seq __P((DB *, DBT *));
 u_int	 setflags __P((char *));
 void	*setinfo __P((DBTYPE, char *));
 void	 usage __P((void));
@@ -209,13 +207,8 @@ main(argc, argv)
 		case 'r':			/* remove */
 			if (state != COMMAND)
 				err("line %lu: not expecting command", lineno);
-                        if (flags == R_CURSOR) {
-				rem(dbp, &key);
-				state = COMMAND;
-                        } else {
-				state = KEY;
-				command = REMOVE;
-			}
+			state = KEY;
+			command = REMOVE;
 			break;
 		case 'S':			/* sync */
 			if (state != COMMAND)
@@ -223,17 +216,7 @@ main(argc, argv)
 			synk(dbp);
 			state = COMMAND;
 			break;
-		case 's':			/* seq */
-			if (state != COMMAND)
-				err("line %lu: not expecting command", lineno);
-			if (flags == R_CURSOR) {
-				state = KEY;
-				command = SEQ;
-			} else
-				seq(dbp, &key);
-			break;
 		case 'f':
-			flags = setflags(p + 1);
 			break;
 		case 'D':			/* data file */
 			if (state != DATA)
@@ -256,31 +239,20 @@ ldata:			switch (command) {
 				err("line %lu: command doesn't take data",
 				    lineno);
 			}
-			if (type != DB_RECNO)
-				free(key.data);
+			free(key.data);
 			free(data.data);
 			state = COMMAND;
 			break;
 		case 'K':			/* key file */
 			if (state != KEY)
 				err("line %lu: not expecting a key", lineno);
-			if (type == DB_RECNO)
-				err("line %lu: 'K' not available for recno",
-				    lineno);
 			key.data = rfile(p + 1, &key.size);
 			goto lkey;
 		case 'k':			/* key */
 			if (state != KEY)
 				err("line %lu: not expecting a key", lineno);
-			if (type == DB_RECNO) {
-				static recno_t recno;
-				recno = atoi(p + 1);
-				key.data = &recno;
-				key.size = sizeof(recno);
-			} else {
-				key.data = xmalloc(p + 1, len - 1);
-				key.size = len - 1;
-			}
+			key.data = xmalloc(p + 1, len - 1);
+			key.size = len - 1;
 lkey:			switch (command) {
 			case COMPARE:
 				getdata(dbp, &key, &keydata);
@@ -288,8 +260,7 @@ lkey:			switch (command) {
 				break;
 			case GET:
 				get(dbp, &key);
-				if (type != DB_RECNO)
-					free(key.data);
+				free(key.data);
 				state = COMMAND;
 				break;
 			case PUT:
@@ -297,14 +268,7 @@ lkey:			switch (command) {
 				break;
 			case REMOVE:
 				rem(dbp, &key);
-				if ((type != DB_RECNO) && (flags != R_CURSOR))
-					free(key.data);
-				state = COMMAND;
-				break;
-			case SEQ:
-				seq(dbp, &key);
-				if ((type != DB_RECNO) && (flags != R_CURSOR))
-					free(key.data);
+				free(key.data);
 				state = COMMAND;
 				break;
 			default:
@@ -313,21 +277,12 @@ lkey:			switch (command) {
 			}
 			break;
 		case 'o':
-			dump(dbp, p[1] == 'r');
 			break;
 		default:
 			err("line %lu: %s: unknown command character",
 			    lineno, p);
 		}
 	}
-#ifdef STATISTICS
-	/*
-	 * -l must be used (DB_LOCK must be set) for this to be
-	 * used, otherwise a page will be locked and it will fail.
-	 */
-	if (type == DB_BTREE && oflags & DB_LOCK)
-		__bt_stat(dbp);
-#endif
 	if (dbp->close(dbp))
 		err("db->close: %s", strerror(errno));
 	(void)close(ofd);
@@ -433,12 +388,9 @@ rem(dbp, kp)
 #define	NOSUCHKEY	"rem failed, no such key\n"
 		if (ofd != STDOUT_FILENO)
 			(void)write(ofd, NOSUCHKEY, sizeof(NOSUCHKEY) - 1);
-		else if (flags != R_CURSOR)
+		else
 			(void)fprintf(stderr, "%d: %.*s: %s", 
 			    lineno, MIN(kp->size, 20), kp->data, NOSUCHKEY);
-		else
-			(void)fprintf(stderr,
-			    "%d: rem of cursor failed\n", lineno);
 #undef	NOSUCHKEY
 		break;
 	}
@@ -457,112 +409,6 @@ synk(dbp)
 	}
 }
 
-void
-seq(dbp, kp)
-	DB *dbp;
-	DBT *kp;
-{
-	DBT data;
-
-	switch (dbp->seq(dbp, kp, &data, flags)) {
-	case 0:
-		(void)write(ofd, data.data, data.size);
-		if (ofd == STDOUT_FILENO)
-			(void)write(ofd, "\n", 1);
-		break;
-	case -1:
-		err("line %lu: seq: %s", lineno, strerror(errno));
-		/* NOTREACHED */
-	case 1:
-#define	NOSUCHKEY	"seq failed, no such key\n"
-		if (ofd != STDOUT_FILENO)
-			(void)write(ofd, NOSUCHKEY, sizeof(NOSUCHKEY) - 1);
-		else if (flags == R_CURSOR)
-			(void)fprintf(stderr, "%d: %.*s: %s", 
-			    lineno, MIN(kp->size, 20), kp->data, NOSUCHKEY);
-		else
-			(void)fprintf(stderr,
-			    "%d: seq (%s) failed\n", lineno, sflags(flags));
-#undef	NOSUCHKEY
-		break;
-	}
-}
-
-void
-dump(dbp, rev)
-	DB *dbp;
-	int rev;
-{
-	DBT key, data;
-	int flags, nflags;
-
-	if (rev) {
-		flags = R_LAST;
-		nflags = R_PREV;
-	} else {
-		flags = R_FIRST;
-		nflags = R_NEXT;
-	}
-	for (;; flags = nflags)
-		switch (dbp->seq(dbp, &key, &data, flags)) {
-		case 0:
-			(void)write(ofd, data.data, data.size);
-			if (ofd == STDOUT_FILENO)
-				(void)write(ofd, "\n", 1);
-			break;
-		case 1:
-			goto done;
-		case -1:
-			err("line %lu: (dump) seq: %s",
-			    lineno, strerror(errno));
-			/* NOTREACHED */
-		}
-done:	return;
-}
-	
-u_int
-setflags(s)
-	char *s;
-{
-	char *p, *index();
-
-	for (; isspace(*s); ++s);
-	if (*s == '\n' || *s == '\0')
-		return (0);
-	if ((p = index(s, '\n')) != NULL)
-		*p = '\0';
-	if (!strcmp(s, "R_CURSOR"))		return (R_CURSOR);
-	if (!strcmp(s, "R_FIRST"))		return (R_FIRST);
-	if (!strcmp(s, "R_IAFTER")) 		return (R_IAFTER);
-	if (!strcmp(s, "R_IBEFORE")) 		return (R_IBEFORE);
-	if (!strcmp(s, "R_LAST")) 		return (R_LAST);
-	if (!strcmp(s, "R_NEXT")) 		return (R_NEXT);
-	if (!strcmp(s, "R_NOOVERWRITE"))	return (R_NOOVERWRITE);
-	if (!strcmp(s, "R_PREV"))		return (R_PREV);
-	if (!strcmp(s, "R_SETCURSOR"))		return (R_SETCURSOR);
-
-	err("line %lu: %s: unknown flag", lineno, s);
-	/* NOTREACHED */
-}
-
-char *
-sflags(flags)
-	int flags;
-{
-	switch (flags) {
-	case R_CURSOR:		return ("R_CURSOR");
-	case R_FIRST:		return ("R_FIRST");
-	case R_IAFTER:		return ("R_IAFTER");
-	case R_IBEFORE:		return ("R_IBEFORE");
-	case R_LAST:		return ("R_LAST");
-	case R_NEXT:		return ("R_NEXT");
-	case R_NOOVERWRITE:	return ("R_NOOVERWRITE");
-	case R_PREV:		return ("R_PREV");
-	case R_SETCURSOR:	return ("R_SETCURSOR");
-	}
-
-	return ("UNKNOWN!");
-}
 	
 DBTYPE
 dbtype(s)
@@ -570,10 +416,6 @@ dbtype(s)
 {
 	if (!strcmp(s, "btree"))
 		return (DB_BTREE);
-	if (!strcmp(s, "hash"))
-		return (DB_HASH);
-	if (!strcmp(s, "recno"))
-		return (DB_RECNO);
 	err("%s: unknown type (use btree, hash or recno)", s);
 	/* NOTREACHED */
 }
@@ -584,8 +426,6 @@ setinfo(type, s)
 	char *s;
 {
 	static BTREEINFO ib;
-	static HASHINFO ih;
-	static RECNOINFO rh;
 	char *eq, *index();
 
 	if ((eq = index(s, '=')) == NULL)
@@ -594,81 +434,29 @@ setinfo(type, s)
 	if (!isdigit(*eq))
 		err("%s: structure set statement must be a number", s);
 		
-	switch (type) {
-	case DB_BTREE:
-		if (!strcmp("flags", s)) {
-			ib.flags = atoi(eq);
-			return (&ib);
-		}
-		if (!strcmp("cachesize", s)) {
-			ib.cachesize = atoi(eq);
-			return (&ib);
-		}
-		if (!strcmp("maxkeypage", s)) {
-			ib.maxkeypage = atoi(eq);
-			return (&ib);
-		}
-		if (!strcmp("minkeypage", s)) {
-			ib.minkeypage = atoi(eq);
-			return (&ib);
-		}
-		if (!strcmp("lorder", s)) {
-			ib.lorder = atoi(eq);
-			return (&ib);
-		}
-		if (!strcmp("psize", s)) {
-			ib.psize = atoi(eq);
-			return (&ib);
-		}
-		break;
-	case DB_HASH:
-		if (!strcmp("bsize", s)) {
-			ih.bsize = atoi(eq);
-			return (&ih);
-		}
-		if (!strcmp("ffactor", s)) {
-			ih.ffactor = atoi(eq);
-			return (&ih);
-		}
-		if (!strcmp("nelem", s)) {
-			ih.nelem = atoi(eq);
-			return (&ih);
-		}
-		if (!strcmp("cachesize", s)) {
-			ih.cachesize = atoi(eq);
-			return (&ih);
-		}
-		if (!strcmp("lorder", s)) {
-			ih.lorder = atoi(eq);
-			return (&ih);
-		}
-		break;
-	case DB_RECNO:
-		if (!strcmp("flags", s)) {
-			rh.flags = atoi(eq);
-			return (&rh);
-		}
-		if (!strcmp("cachesize", s)) {
-			rh.cachesize = atoi(eq);
-			return (&rh);
-		}
-		if (!strcmp("lorder", s)) {
-			rh.lorder = atoi(eq);
-			return (&rh);
-		}
-		if (!strcmp("reclen", s)) {
-			rh.reclen = atoi(eq);
-			return (&rh);
-		}
-		if (!strcmp("bval", s)) {
-			rh.bval = atoi(eq);
-			return (&rh);
-		}
-		if (!strcmp("psize", s)) {
-			rh.psize = atoi(eq);
-			return (&rh);
-		}
-		break;
+	if (!strcmp("flags", s)) {
+		ib.flags = atoi(eq);
+		return (&ib);
+	}
+	if (!strcmp("cachesize", s)) {
+		ib.cachesize = atoi(eq);
+		return (&ib);
+	}
+	if (!strcmp("maxkeypage", s)) {
+		ib.maxkeypage = atoi(eq);
+		return (&ib);
+	}
+	if (!strcmp("minkeypage", s)) {
+		ib.minkeypage = atoi(eq);
+		return (&ib);
+	}
+	if (!strcmp("lorder", s)) {
+		ib.lorder = atoi(eq);
+		return (&ib);
+	}
+	if (!strcmp("psize", s)) {
+		ib.psize = atoi(eq);
+		return (&ib);
 	}
 	err("%s: unknown structure value", s);
 	/* NOTREACHED */

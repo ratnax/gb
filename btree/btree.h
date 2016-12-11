@@ -72,10 +72,8 @@ typedef struct _page {
 #define	P_BINTERNAL	0x01		/* btree internal page */
 #define	P_BLEAF		0x02		/* leaf page */
 #define	P_OVERFLOW	0x04		/* overflow page */
-#define	P_RINTERNAL	0x08		/* recno internal page */
-#define	P_RLEAF		0x10		/* leaf page */
-#define P_TYPE		0x1f		/* type mask */
-#define	P_PRESERVE	0x20		/* never delete this chain of pages */
+#define P_TYPE		0x0f		/* type mask */
+#define	P_PRESERVE	0x10		/* never delete this chain of pages */
 	u_int32_t flags;
 
 	indx_t	lower;			/* lower bound of free space on page */
@@ -144,30 +142,6 @@ typedef struct _binternal {
 	p += sizeof(u_char);						\
 }
 
-/*
- * For the recno internal pages, the item is a page number with the number of
- * keys found on that page and below.
- */
-typedef struct _rinternal {
-	recno_t	nrecs;			/* number of records */
-	pgno_t	pgno;			/* page number stored below */
-} RINTERNAL;
-
-/* Get the page's RINTERNAL structure at index indx. */
-#define	GETRINTERNAL(pg, indx)						\
-	((RINTERNAL *)((char *)(pg) + (pg)->linp[indx]))
-
-/* Get the number of bytes in the entry. */
-#define NRINTERNAL							\
-	LALIGN(sizeof(recno_t) + sizeof(pgno_t))
-
-/* Copy a RINTERAL entry to the page. */
-#define	WR_RINTERNAL(p, nrecs, pgno) {					\
-	*(recno_t *)p = nrecs;						\
-	p += sizeof(recno_t);						\
-	*(pgno_t *)p = pgno;						\
-}
-
 /* For the btree leaf pages, the item is a key and data pair. */
 typedef struct _bleaf {
 	u_int32_t	ksize;		/* size of key */
@@ -201,33 +175,6 @@ typedef struct _bleaf {
 	memmove(p, data->data, data->size);				\
 }
 
-/* For the recno leaf pages, the item is a data entry. */
-typedef struct _rleaf {
-	u_int32_t	dsize;		/* size of data */
-	u_char	flags;			/* P_BIGDATA */
-	char	bytes[1];
-} RLEAF;
-
-/* Get the page's RLEAF structure at index indx. */
-#define	GETRLEAF(pg, indx)						\
-	((RLEAF *)((char *)(pg) + (pg)->linp[indx]))
-
-/* Get the number of bytes in the entry. */
-#define NRLEAF(p)	NRLEAFDBT((p)->dsize)
-
-/* Get the number of bytes from the user's data. */
-#define	NRLEAFDBT(dsize)						\
-	LALIGN(sizeof(u_int32_t) + sizeof(u_char) + (dsize))
-
-/* Copy a RLEAF entry to the page. */
-#define	WR_RLEAF(p, data, flags) {					\
-	*(u_int32_t *)p = data->size;					\
-	p += sizeof(u_int32_t);						\
-	*(u_char *)p = flags;						\
-	p += sizeof(u_char);						\
-	memmove(p, data->data, data->size);				\
-}
-
 /*
  * A record in the tree is either a pointer to a page and an index in the page
  * or a page number and an index.  These structures are used as a cursor, stack
@@ -247,42 +194,6 @@ typedef struct _epg {
 	PAGE	*page;			/* the (pinned) page */
 	indx_t	 index;			/* the index on the page */
 } EPG;
-
-/*
- * About cursors.  The cursor (and the page that contained the key/data pair
- * that it referenced) can be deleted, which makes things a bit tricky.  If
- * there are no duplicates of the cursor key in the tree (i.e. B_NODUPS is set
- * or there simply aren't any duplicates of the key) we copy the key that it
- * referenced when it's deleted, and reacquire a new cursor key if the cursor
- * is used again.  If there are duplicates keys, we move to the next/previous
- * key, and set a flag so that we know what happened.  NOTE: if duplicate (to
- * the cursor) keys are added to the tree during this process, it is undefined
- * if they will be returned or not in a cursor scan.
- *
- * The flags determine the possible states of the cursor:
- *
- * CURS_INIT	The cursor references *something*.
- * CURS_ACQUIRE	The cursor was deleted, and a key has been saved so that
- *		we can reacquire the right position in the tree.
- * CURS_AFTER, CURS_BEFORE
- *		The cursor was deleted, and now references a key/data pair
- *		that has not yet been returned, either before or after the
- *		deleted key/data pair.
- * XXX
- * This structure is broken out so that we can eventually offer multiple
- * cursors as part of the DB interface.
- */
-typedef struct _cursor {
-	EPGNO	 pg;			/* B: Saved tree reference. */
-	DBT	 key;			/* B: Saved key, or key.data == NULL. */
-	recno_t	 rcursor;		/* R: recno cursor (1-based) */
-
-#define	CURS_ACQUIRE	0x01		/*  B: Cursor needs to be reacquired. */
-#define	CURS_AFTER	0x02		/*  B: Unreturned cursor after key. */
-#define	CURS_BEFORE	0x04		/*  B: Unreturned cursor before key. */
-#define	CURS_INIT	0x08		/* RB: Cursor initialized. */
-	u_int8_t flags;
-} CURSOR;
 
 /*
  * The metadata of the tree.  The nrecs field is used only by the RECNO code.
@@ -309,8 +220,6 @@ typedef struct _btree {
 	EPG	  bt_cur;		/* current (pinned) page */
 	PAGE	 *bt_pinned;		/* page pinned across calls */
 
-	CURSOR	  bt_cursor;		/* cursor */
-
 #define	BT_PUSH(t, p, i) {						\
 	t->bt_sp->pgno = p; 						\
 	t->bt_sp->index = i; 						\
@@ -330,28 +239,11 @@ typedef struct _btree {
 	u_int32_t bt_psize;		/* page size */
 	indx_t	  bt_ovflsize;		/* cut-off for key/data overflow */
 	int	  bt_lorder;		/* byte order */
-					/* sorted order */
-	enum { NOT, BACK, FORWARD } bt_order;
-	EPGNO	  bt_last;		/* last insert */
 
 					/* B: key comparison function */
 	int	(*bt_cmp) __P((const DBT *, const DBT *));
 					/* B: prefix comparison function */
-	size_t	(*bt_pfx) __P((const DBT *, const DBT *));
-					/* R: recno input function */
-	int	(*bt_irec) __P((struct _btree *, recno_t));
-
-	FILE	 *bt_rfp;		/* R: record FILE pointer */
-	int	  bt_rfd;		/* R: record file descriptor */
-
-	caddr_t	  bt_cmap;		/* R: current point in mapped space */
-	caddr_t	  bt_smap;		/* R: start of mapped space */
-	caddr_t   bt_emap;		/* R: end of mapped space */
-	size_t	  bt_msize;		/* R: size of mapped region. */
-
-	recno_t	  bt_nrecs;		/* R: number of records */
-	size_t	  bt_reclen;		/* R: fixed record length */
-	u_char	  bt_bval;		/* R: delimiting byte/pad character */
+	size_t  (*bt_pfx) __P((const DBT *, const DBT *));
 
 /*
  * NB:
@@ -368,15 +260,11 @@ typedef struct _btree {
 
 #define	R_CLOSEFP	0x00040		/* opened a file pointer */
 #define	R_EOF		0x00100		/* end of input file reached. */
-#define	R_FIXLEN	0x00200		/* fixed length records */
-#define	R_MEMMAPPED	0x00400		/* memory mapped file. */
-#define	R_INMEM		0x00800		/* in-memory file */
-#define	R_MODIFIED	0x01000		/* modified file */
-#define	R_RDONLY	0x02000		/* read-only file */
+#define	R_MEMMAPPED	0x00200		/* memory mapped file. */
+#define	R_INMEM		0x00400		/* in-memory file */
+#define	R_MODIFIED	0x00800		/* modified file */
+#define	R_RDONLY	0x01000		/* read-only file */
 
-#define	B_DB_LOCK	0x04000		/* DB_LOCK specified. */
-#define	B_DB_SHMEM	0x08000		/* DB_SHMEM specified. */
-#define	B_DB_TXN	0x10000		/* DB_TXN specified. */
 	u_int32_t flags;
 } BTREE;
 

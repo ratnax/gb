@@ -35,7 +35,6 @@
 
 int	 __bt_close __P((DB *));
 int	 __bt_cmp __P((BTREE *, const DBT *, EPG *));
-int	 __bt_crsrdel __P((BTREE *, EPGNO *));
 int	 __bt_defcmp __P((const DBT *, const DBT *));
 size_t	 __bt_defpfx __P((const DBT *, const DBT *));
 int	 __bt_delete __P((const DB *, const DBT *, u_int));
@@ -50,8 +49,6 @@ int	 __bt_push __P((BTREE *, pgno_t, int));
 int	 __bt_put __P((const DB *dbp, DBT *, const DBT *, u_int));
 int	 __bt_ret __P((BTREE *, EPG *, DBT *, DBT *, DBT *, DBT *, int));
 EPG	*__bt_search __P((BTREE *, const DBT *, int *));
-int	 __bt_seq __P((const DB *, DBT *, DBT *, u_int));
-void	 __bt_setcur __P((BTREE *, pgno_t, u_int));
 int	 __bt_split __P((BTREE *, PAGE *,
 	    const DBT *, const DBT *, int, size_t, u_int32_t));
 int	 __bt_sync __P((const DB *, u_int));
