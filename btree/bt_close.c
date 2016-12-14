@@ -159,7 +159,7 @@ bt_meta(t)
 	BTMETA m;
 	void *p;
 
-	if ((p = mpool_get(t->bt_mp, P_META, 0)) == NULL)
+	if ((p = mpool_get_pg(t->bt_mp, P_META, 0)) == NULL)
 		return (RET_ERROR);
 
 	/* Fill in metadata. */

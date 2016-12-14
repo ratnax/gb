@@ -51,9 +51,11 @@ typedef struct _bkt {
 	CIRCLEQ_ENTRY(_bkt) q;		/* lru queue */
 	void    *page;			/* page */
 	pgno_t   pgno;			/* page number */
+	size_t	npgs;
 
+	u_int32_t pinned;
 #define	MPOOL_DIRTY	0x01		/* page needs to be written */
-#define	MPOOL_PINNED	0x02		/* page is pinned into memory */
+#define	MPOOL_NEW 	0x02		/* page needs to be written */
 	u_int8_t flags;			/* flags */
 } BKT;
 
@@ -71,29 +73,19 @@ typedef struct MPOOL {
 					/* page out conversion routine */
 	void    (*pgout) __P((void *, pgno_t, void *));
 	void	*pgcookie;		/* cookie for page in/out routines */
-#ifdef STATISTICS
-	u_long	cachehit;
-	u_long	cachemiss;
-	u_long	pagealloc;
-	u_long	pageflush;
-	u_long	pageget;
-	u_long	pagenew;
-	u_long	pageput;
-	u_long	pageread;
-	u_long	pagewrite;
-#endif
 } MPOOL;
 
 __BEGIN_DECLS
 MPOOL	*mpool_open __P((void *, int, pgno_t, pgno_t));
 void	 mpool_filter __P((MPOOL *, void (*)(void *, pgno_t, void *),
 	    void (*)(void *, pgno_t, void *), void *));
-void	*mpool_new __P((MPOOL *, pgno_t *));
-void	*mpool_get __P((MPOOL *, pgno_t, u_int));
+void	*mpool_new __P((MPOOL *, pgno_t *, off_t *, size_t));
+void	*mpool_new_pg __P((MPOOL *, pgno_t *));
+void	*mpool_get __P((MPOOL *, loff_t, size_t, pgno_t *, off_t *, u_int));
+void	*mpool_get_pg __P((MPOOL *, pgno_t , u_int));
+
 int	 mpool_put __P((MPOOL *, void *, u_int));
+int	 mpool_free_pg __P((MPOOL *, void *));
 int	 mpool_sync __P((MPOOL *));
 int	 mpool_close __P((MPOOL *));
-#ifdef STATISTICS
-void	 mpool_stat __P((MPOOL *));
-#endif
 __END_DECLS

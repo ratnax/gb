@@ -107,9 +107,6 @@ main(argc, argv)
 		case 'i':
 			infoarg = optarg;
 			break;
-		case 'l':
-			oflags |= DB_LOCK;
-			break;
 		case 'o':
 			if ((ofd = open(optarg,
 			    O_WRONLY|O_CREAT|O_TRUNC, 0666)) < 0)
@@ -162,7 +159,7 @@ main(argc, argv)
 	    oflags, S_IRUSR | S_IWUSR, type, infop)) == NULL)
 		err("dbopen: %s", strerror(errno));
 	XXdbp = dbp;
-
+	
 	state = COMMAND;
 	for (lineno = 1;
 	    (p = fgets(buf, sizeof(buf), stdin)) != NULL; ++lineno) {

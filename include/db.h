@@ -78,28 +78,6 @@ typedef struct {
 
 typedef enum { DB_BTREE} DBTYPE;
 
-/*
- * !!!
- * The following flags are included in the dbopen(3) call as part of the
- * open(2) flags.  In order to avoid conflicts with the open flags, start
- * at the top of the 16 or 32-bit number space and work our way down.  If
- * the open flags were significantly expanded in the future, it could be
- * a problem.  Wish I'd left another flags word in the dbopen call.
- *
- * !!!
- * None of this stuff is implemented yet.  The only reason that it's here
- * is so that the access methods can skip copying the key/data pair when
- * the DB_LOCK flag isn't set.
- */
-#if UINT_MAX > 65535
-#define	DB_LOCK		0x20000000	/* Do locking. */
-#define	DB_SHMEM	0x40000000	/* Use shared memory. */
-#define	DB_TXN		0x80000000	/* Do transactions. */
-#else
-#define	DB_LOCK		    0x2000	/* Do locking. */
-#define	DB_SHMEM	    0x4000	/* Use shared memory. */
-#define	DB_TXN		    0x8000	/* Do transactions. */
-#endif
 
 /* Access method description structure. */
 typedef struct __db {

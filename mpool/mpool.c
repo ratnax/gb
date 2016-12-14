@@ -44,13 +44,14 @@ static char sccsid[] = "@(#)mpool.c	8.5 (Berkeley) 7/26/94";
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <assert.h>
 
 #include <db.h>
 
 #define	__MPOOLINTERFACE_PRIVATE
 #include <mpool.h>
+#include <buddy.h>
 
-static BKT *mpool_bkt __P((MPOOL *));
 static BKT *mpool_look __P((MPOOL *, pgno_t));
 static int  mpool_write __P((MPOOL *, BKT *));
 
@@ -91,6 +92,8 @@ mpool_open(key, fd, pagesize, maxcache)
 	mp->npages = sb.st_size / pagesize;
 	mp->pagesize = pagesize;
 	mp->fd = fd;
+
+	buddy_init(0);
 	return (mp);
 }
 
@@ -111,74 +114,84 @@ mpool_filter(mp, pgin, pgout, pgcookie)
 }
 	
 /*
- * mpool_new --
- *	Get a new page of memory.
+ * mpool_bkt
+ *	Get a page from the cache (or create one).
  */
-void *
-mpool_new(mp, pgnoaddr)
+static BKT *
+mpool_bkt(mp, npgs)
 	MPOOL *mp;
-	pgno_t *pgnoaddr;
+	size_t npgs;
 {
 	struct _hqh *head;
 	BKT *bp;
 
-	if (mp->npages == MAX_PAGE_NUMBER) {
-		(void)fprintf(stderr, "mpool_new: page allocation overflow.\n");
-		abort();
-	}
-#ifdef STATISTICS
-	++mp->pagenew;
-#endif
-	/*
-	 * Get a BKT from the cache.  Assign a new page number, attach
-	 * it to the head of the hash chain, the tail of the lru chain,
-	 * and return.
-	 */
-	if ((bp = mpool_bkt(mp)) == NULL)
-		return (NULL);
-	*pgnoaddr = bp->pgno = mp->npages++;
-	bp->flags = MPOOL_PINNED;
+	/* If under the max cached, always create a new page. */
+	if (mp->curcache < mp->maxcache)
+		goto new;
 
-	head = &mp->hqh[HASHKEY(bp->pgno)];
-	CIRCLEQ_INSERT_HEAD(head, bp, hq);
-	CIRCLEQ_INSERT_TAIL(&mp->lqh, bp, q);
-	return (bp->page);
+	/*
+	 * If the cache is max'd out, walk the lru list for a buffer we
+	 * can flush.  If we find one, write it (if necessary) and take it
+	 * off any lists.  If we don't find anything we grow the cache anyway.
+	 * The cache never shrinks.
+	 */
+	for (bp = mp->lqh.cqh_first;
+	    bp != (void *)&mp->lqh; bp = bp->q.cqe_next)
+		if (!(bp->pinned)) {
+			/* Flush if dirty. */
+			if (bp->flags & MPOOL_DIRTY &&
+			    mpool_write(mp, bp) == RET_ERROR)
+				return (NULL);
+
+			/* Remove from the hash and lru queues. */
+			head = &mp->hqh[HASHKEY(bp->pgno)];
+			CIRCLEQ_REMOVE(head, bp, hq);
+			CIRCLEQ_REMOVE(&mp->lqh, bp, q);
+			free(bp);
+			break;
+		}
+
+new:	if ((bp = (BKT *)malloc(sizeof(BKT) + npgs * mp->pagesize)) == NULL)
+		return (NULL);
+	bp->page = (char *)bp + sizeof(BKT);
+	bp->npgs = npgs;
+	bp->pinned = 0;
+	++mp->curcache;
+	return (bp);
 }
+
 
 /*
  * mpool_get
  *	Get a page.
  */
 void *
-mpool_get(mp, pgno, flags)
+__mpool_get(mp, pgno, npgs, flags)
 	MPOOL *mp;
 	pgno_t pgno;
+	int npgs;
 	u_int flags;				/* XXX not used? */
 {
 	struct _hqh *head;
 	BKT *bp;
 	off_t off;
-	int nr;
+	int nr, i;
+
 
 	/* Check for attempt to retrieve a non-existent page. */
-	if (pgno >= mp->npages) {
+	if (0 && pgno >= mp->npages) {
 		errno = EINVAL;
 		return (NULL);
 	}
 
-#ifdef STATISTICS
-	++mp->pageget;
-#endif
-
 	/* Check for a page that is cached. */
 	if ((bp = mpool_look(mp, pgno)) != NULL) {
-#ifdef DEBUG
-		if (bp->flags & MPOOL_PINNED) {
+		if (bp->pinned) {
 			(void)fprintf(stderr,
 			    "mpool_get: page %d already pinned\n", bp->pgno);
 			abort();
 		}
-#endif
+		assert(bp->npgs == npgs);
 		/*
 		 * Move the page to the head of the hash chain and the tail
 		 * of the lru chain.
@@ -190,30 +203,32 @@ mpool_get(mp, pgno, flags)
 		CIRCLEQ_INSERT_TAIL(&mp->lqh, bp, q);
 
 		/* Return a pinned page. */
-		bp->flags |= MPOOL_PINNED;
+		bp->pinned++;
 		return (bp->page);
 	}
 
 	/* Get a page from the cache. */
-	if ((bp = mpool_bkt(mp)) == NULL)
+	if ((bp = mpool_bkt(mp, npgs)) == NULL)
 		return (NULL);
 
 	/* Read in the contents. */
-#ifdef STATISTICS
-	++mp->pageread;
-#endif
-	off = mp->pagesize * pgno;
-	if (lseek(mp->fd, off, SEEK_SET) != off)
-		return (NULL);
-	if ((nr = read(mp->fd, bp->page, mp->pagesize)) != mp->pagesize) {
-		if (nr >= 0)
-			errno = EFTYPE;
-		return (NULL);
+	if (!(flags & MPOOL_NEW)) {
+		off = mp->pagesize * pgno;
+		if (lseek(mp->fd, off, SEEK_SET) != off)
+			return (NULL);
+
+		nr = read(mp->fd, bp->page, npgs * mp->pagesize);
+		if (nr != npgs * mp->pagesize) {
+			if (nr >= 0)
+				errno = EFTYPE;
+			return (NULL);
+		}
 	}
 
 	/* Set the page number, pin the page. */
 	bp->pgno = pgno;
-	bp->flags = MPOOL_PINNED;
+	bp->npgs = npgs;
+	bp->pinned++;
 
 	/*
 	 * Add the page to the head of the hash chain and the tail
@@ -224,11 +239,88 @@ mpool_get(mp, pgno, flags)
 	CIRCLEQ_INSERT_TAIL(&mp->lqh, bp, q);
 
 	/* Run through the user's filter. */
-	if (mp->pgin != NULL)
-		(mp->pgin)(mp->pgcookie, bp->pgno, bp->page);
+	if (mp->pgin != NULL) {
+		for (i = 0; i < npgs; i++)
+			(mp->pgin)(mp->pgcookie, bp->pgno + i, bp->page + i * mp->pagesize);
+	}
 
 	return (bp->page);
 }
+
+/*
+ * mpool_new --
+ *	Get a new page of memory.
+ */
+void *
+mpool_new(mp, pgnoaddr, offaddr, size)
+	MPOOL *mp;
+	pgno_t *pgnoaddr;
+	off_t *offaddr;
+	size_t size;
+{
+	struct _hqh *head;
+	BKT *bp;
+	loff_t blk;
+	size_t order;
+
+	for (order = 0; size > (1 << order); order++);
+	
+	blk = balloc(order);
+
+	*pgnoaddr = blk / mp->pagesize;
+	*offaddr = blk % mp->pagesize;
+
+
+	return __mpool_get(mp, blk / mp->pagesize, 
+			((1 << order) / mp->pagesize) ? : 1, MPOOL_NEW);
+}
+
+
+void *
+mpool_new_pg (mp, pgnoaddr)
+	MPOOL *mp;
+	pgno_t *pgnoaddr;
+{
+	int order;
+
+	for (order = 0; mp->pagesize > (1 << order); order++);
+
+	*pgnoaddr = balloc(order) / mp->pagesize;
+	return __mpool_get(mp, *pgnoaddr, 1, MPOOL_NEW);
+}
+
+
+void *
+mpool_get(mp, blk, size, pgnoaddr, offaddr, flags)
+	MPOOL *mp;
+	loff_t blk;
+	size_t size;
+	pgno_t *pgnoaddr;
+	off_t *offaddr;
+	u_int flags;			
+{
+	struct _hqh *head;
+	BKT *bp;
+	int order;
+
+	for (order = 0; size > (1 << order); order++);
+	
+	*pgnoaddr = blk / mp->pagesize;
+	*offaddr = blk % mp->pagesize;
+
+	return __mpool_get(mp, blk / mp->pagesize, 
+			((1 << order) / mp->pagesize) ? : 1, 0);
+}
+
+void *
+mpool_get_pg(mp, pgno, flags)
+	MPOOL *mp;
+	pgno_t pgno;
+	u_int flags;		
+{
+	return __mpool_get(mp, pgno, 1, flags);
+}
+
 
 /*
  * mpool_put
@@ -240,22 +332,32 @@ mpool_put(mp, page, flags)
 	void *page;
 	u_int flags;
 {
-	BKT *bp;
+	BKT *bp = (BKT *)((char *)page - sizeof(BKT));
 
-#ifdef STATISTICS
-	++mp->pageput;
-#endif
-	bp = (BKT *)((char *)page - sizeof(BKT));
-#ifdef DEBUG
-	if (!(bp->flags & MPOOL_PINNED)) {
+	if (!(bp->pinned)) {
 		(void)fprintf(stderr,
 		    "mpool_put: page %d not pinned\n", bp->pgno);
 		abort();
 	}
-#endif
-	bp->flags &= ~MPOOL_PINNED;
+
+	bp->pinned--;
 	bp->flags |= flags & MPOOL_DIRTY;
 	return (RET_SUCCESS);
+}
+
+int mpool_free_pg(mp, page)
+	MPOOL *mp;
+	void *page;
+{
+	int order;
+	BKT *bp = (BKT *)((char *)page - sizeof(BKT));
+
+	bp->pinned--;
+	bp->flags &= ~MPOOL_DIRTY;
+
+	for (order = 0; mp->pagesize > (1 << order); order++);
+
+	bfree(bp->pgno * mp->pagesize, order);
 }
 
 /*
@@ -301,64 +403,6 @@ mpool_sync(mp)
 }
 
 /*
- * mpool_bkt
- *	Get a page from the cache (or create one).
- */
-static BKT *
-mpool_bkt(mp)
-	MPOOL *mp;
-{
-	struct _hqh *head;
-	BKT *bp;
-
-	/* If under the max cached, always create a new page. */
-	if (mp->curcache < mp->maxcache)
-		goto new;
-
-	/*
-	 * If the cache is max'd out, walk the lru list for a buffer we
-	 * can flush.  If we find one, write it (if necessary) and take it
-	 * off any lists.  If we don't find anything we grow the cache anyway.
-	 * The cache never shrinks.
-	 */
-	for (bp = mp->lqh.cqh_first;
-	    bp != (void *)&mp->lqh; bp = bp->q.cqe_next)
-		if (!(bp->flags & MPOOL_PINNED)) {
-			/* Flush if dirty. */
-			if (bp->flags & MPOOL_DIRTY &&
-			    mpool_write(mp, bp) == RET_ERROR)
-				return (NULL);
-#ifdef STATISTICS
-			++mp->pageflush;
-#endif
-			/* Remove from the hash and lru queues. */
-			head = &mp->hqh[HASHKEY(bp->pgno)];
-			CIRCLEQ_REMOVE(head, bp, hq);
-			CIRCLEQ_REMOVE(&mp->lqh, bp, q);
-#ifdef DEBUG
-			{ void *spage;
-				spage = bp->page;
-				memset(bp, 0xff, sizeof(BKT) + mp->pagesize);
-				bp->page = spage;
-			}
-#endif
-			return (bp);
-		}
-
-new:	if ((bp = (BKT *)malloc(sizeof(BKT) + mp->pagesize)) == NULL)
-		return (NULL);
-#ifdef STATISTICS
-	++mp->pagealloc;
-#endif
-#if defined(DEBUG) || defined(PURIFY)
-	memset(bp, 0xff, sizeof(BKT) + mp->pagesize);
-#endif
-	bp->page = (char *)bp + sizeof(BKT);
-	++mp->curcache;
-	return (bp);
-}
-
-/*
  * mpool_write
  *	Write a page to disk.
  */
@@ -367,20 +411,26 @@ mpool_write(mp, bp)
 	MPOOL *mp;
 	BKT *bp;
 {
+	int i;
 	off_t off;
+	size_t bwrite;
 
 #ifdef STATISTICS
 	++mp->pagewrite;
 #endif
 
 	/* Run through the user's filter. */
-	if (mp->pgout)
-		(mp->pgout)(mp->pgcookie, bp->pgno, bp->page);
+	if (mp->pgout) {
+		for (i = 0; i < bp->npgs; i++) 
+			(mp->pgout)(mp->pgcookie, bp->pgno + i, 
+					bp->page + mp->pagesize * i);
+	}
 
 	off = mp->pagesize * bp->pgno;
 	if (lseek(mp->fd, off, SEEK_SET) != off)
 		return (RET_ERROR);
-	if (write(mp->fd, bp->page, mp->pagesize) != mp->pagesize)
+	bwrite = write(mp->fd, bp->page, mp->pagesize * bp->npgs);
+   	if (bwrite != bp->npgs * mp->pagesize)
 		return (RET_ERROR);
 
 	bp->flags &= ~MPOOL_DIRTY;
@@ -412,52 +462,3 @@ mpool_look(mp, pgno)
 #endif
 	return (NULL);
 }
-
-#ifdef STATISTICS
-/*
- * mpool_stat
- *	Print out cache statistics.
- */
-void
-mpool_stat(mp)
-	MPOOL *mp;
-{
-	BKT *bp;
-	int cnt;
-	char *sep;
-
-	(void)fprintf(stderr, "%lu pages in the file\n", mp->npages);
-	(void)fprintf(stderr,
-	    "page size %lu, cacheing %lu pages of %lu page max cache\n",
-	    mp->pagesize, mp->curcache, mp->maxcache);
-	(void)fprintf(stderr, "%lu page puts, %lu page gets, %lu page new\n",
-	    mp->pageput, mp->pageget, mp->pagenew);
-	(void)fprintf(stderr, "%lu page allocs, %lu page flushes\n",
-	    mp->pagealloc, mp->pageflush);
-	if (mp->cachehit + mp->cachemiss)
-		(void)fprintf(stderr,
-		    "%.0f%% cache hit rate (%lu hits, %lu misses)\n", 
-		    ((double)mp->cachehit / (mp->cachehit + mp->cachemiss))
-		    * 100, mp->cachehit, mp->cachemiss);
-	(void)fprintf(stderr, "%lu page reads, %lu page writes\n",
-	    mp->pageread, mp->pagewrite);
-
-	sep = "";
-	cnt = 0;
-	for (bp = mp->lqh.cqh_first;
-	    bp != (void *)&mp->lqh; bp = bp->q.cqe_next) {
-		(void)fprintf(stderr, "%s%d", sep, bp->pgno);
-		if (bp->flags & MPOOL_DIRTY)
-			(void)fprintf(stderr, "d");
-		if (bp->flags & MPOOL_PINNED)
-			(void)fprintf(stderr, "P");
-		if (++cnt == 10) {
-			sep = "\n";
-			cnt = 0;
-		} else
-			sep = ", ";
-			
-	}
-	(void)fprintf(stderr, "\n");
-}
-#endif

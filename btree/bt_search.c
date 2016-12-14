@@ -72,7 +72,7 @@ __bt_search(t, key, exactp)
 
 	BT_CLR(t);
 	for (pg = P_ROOT;;) {
-		if ((h = mpool_get(t->bt_mp, pg, 0)) == NULL)
+		if ((h = mpool_get_pg(t->bt_mp, pg, 0)) == NULL)
 			return (NULL);
 
 		/* Do a binary search on the current page. */

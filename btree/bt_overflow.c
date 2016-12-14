@@ -111,7 +111,7 @@ __ovfl_get(t, p, ssz, buf, bufsz)
 	 */
 	plen = t->bt_psize - BTDATAOFF;
 	for (p = *buf;; p = (char *)p + nb, pg = h->nextpg) {
-		if ((h = mpool_get(t->bt_mp, pg, 0)) == NULL)
+		if ((h = mpool_get_pg(t->bt_mp, pg, 0)) == NULL)
 			return (RET_ERROR);
 
 		nb = MIN(sz, plen);
@@ -206,7 +206,7 @@ __ovfl_delete(t, p)
 	if (pg == P_INVALID || sz == 0)
 		abort();
 #endif
-	if ((h = mpool_get(t->bt_mp, pg, 0)) == NULL)
+	if ((h = mpool_get_pg(t->bt_mp, pg, 0)) == NULL)
 		return (RET_ERROR);
 
 	/* Don't delete chains used by internal pages. */
@@ -221,7 +221,7 @@ __ovfl_delete(t, p)
 		__bt_free(t, h);
 		if (sz <= plen)
 			break;
-		if ((h = mpool_get(t->bt_mp, pg, 0)) == NULL)
+		if ((h = mpool_get_pg(t->bt_mp, pg, 0)) == NULL)
 			return (RET_ERROR);
 	}
 	return (RET_SUCCESS);

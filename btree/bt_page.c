@@ -61,6 +61,7 @@ __bt_free(t, h)
 	BTREE *t;
 	PAGE *h;
 {
+	return mpool_free_pg(t->bt_mp, h);
 	/* Insert the page at the head of the free list. */
 	h->prevpg = P_INVALID;
 	h->nextpg = t->bt_free;
@@ -89,10 +90,10 @@ __bt_new(t, npg)
 	PAGE *h;
 
 	if (t->bt_free != P_INVALID &&
-	    (h = mpool_get(t->bt_mp, t->bt_free, 0)) != NULL) {
+	    (h = mpool_get_pg(t->bt_mp, t->bt_free, 0)) != NULL) {
 		*npg = t->bt_free;
 		t->bt_free = h->nextpg;
 		return (h);
 	}
-	return (mpool_new(t->bt_mp, npg));
+	return (mpool_new_pg(t->bt_mp, npg));
 }

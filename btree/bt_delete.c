@@ -210,7 +210,7 @@ __bt_pdelete(t, h)
 	 */
 	while ((parent = BT_POP(t)) != NULL) {
 		/* Get the parent page. */
-		if ((pg = mpool_get(t->bt_mp, parent->pgno, 0)) == NULL)
+		if ((pg = mpool_get_pg(t->bt_mp, parent->pgno, 0)) == NULL)
 			return (RET_ERROR);
 		
 		index = parent->index;
@@ -335,13 +335,13 @@ __bt_relink(t, h)
 	PAGE *pg;
 
 	if (h->nextpg != P_INVALID) {
-		if ((pg = mpool_get(t->bt_mp, h->nextpg, 0)) == NULL)
+		if ((pg = mpool_get_pg(t->bt_mp, h->nextpg, 0)) == NULL)
 			return (RET_ERROR);
 		pg->prevpg = h->prevpg;
 		mpool_put(t->bt_mp, pg, MPOOL_DIRTY);
 	}
 	if (h->prevpg != P_INVALID) {
-		if ((pg = mpool_get(t->bt_mp, h->prevpg, 0)) == NULL)
+		if ((pg = mpool_get_pg(t->bt_mp, h->prevpg, 0)) == NULL)
 			return (RET_ERROR);
 		pg->nextpg = h->nextpg;
 		mpool_put(t->bt_mp, pg, MPOOL_DIRTY);

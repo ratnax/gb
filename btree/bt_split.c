@@ -145,7 +145,7 @@ __bt_split(t, sp, key, data, flags, ilen, argskip)
 		rchild = r;
 
 		/* Get the parent page. */
-		if ((h = mpool_get(t->bt_mp, parent->pgno, 0)) == NULL)
+		if ((h = mpool_get_pg(t->bt_mp, parent->pgno, 0)) == NULL)
 			goto err2;
 
 	 	/*
@@ -341,7 +341,7 @@ bt_page(t, h, lp, rp, skip, ilen)
 
 	/* Fix up the previous pointer of the page after the split page. */
 	if (h->nextpg != P_INVALID) {
-		if ((tp = mpool_get(t->bt_mp, h->nextpg, 0)) == NULL) {
+		if ((tp = mpool_get_pg(t->bt_mp, h->nextpg, 0)) == NULL) {
 			free(l);
 			/* XXX mpool_free(t->bt_mp, r->pgno); */
 			return (NULL);
@@ -649,7 +649,7 @@ bt_preserve(t, pg)
 {
 	PAGE *h;
 
-	if ((h = mpool_get(t->bt_mp, pg, 0)) == NULL)
+	if ((h = mpool_get_pg(t->bt_mp, pg, 0)) == NULL)
 		return (RET_ERROR);
 	h->flags |= P_PRESERVE;
 	mpool_put(t->bt_mp, h, MPOOL_DIRTY);

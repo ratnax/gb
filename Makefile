@@ -7,7 +7,7 @@ OBJ2=	bt_close.o bt_conv.o bt_debug.o bt_delete.o bt_get.o bt_open.o \
 	bt_overflow.o bt_page.o bt_put.o bt_search.o bt_split.o \
 	bt_utils.o
 OBJ3=	db.o
-OBJ4=	mpool.o
+OBJ4=	mpool.o buddy.o
 OBJ5=
 
 #MISC=	snprintf.o
@@ -22,7 +22,7 @@ clean:
 	rm -f ${LIBDB} ${OBJ1} ${OBJ2} ${OBJ3} ${OBJ4} ${OBJ5} ${MISC}
 
 OORG=	-O
-CL=    ${CC} -c -D__DBINTERFACE_PRIVATE ${OORG} -I. -Iinclude
+CL=    ${CC} -g -c -D__DBINTERFACE_PRIVATE ${OORG} -I. -Iinclude
 #CL=	${CC} -c -DSTATISTICS -DDEBUG -D__DBINTERFACE_PRIVATE ${OORG} -I. -Iinclude
 
 bt_close.o: btree/bt_close.c
@@ -57,6 +57,9 @@ db.o: db/db.c
 
 mpool.o: mpool/mpool.c
 	${CL} -Impool mpool/mpool.c
+buddy.o: mpool/buddy.c
+	${CL} -Impool mpool/buddy.c
+
 
 memmove.o:
 	${CC} -DMEMMOVE -c -O -I. -Iinclude clib/memmove.c

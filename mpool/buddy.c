@@ -27,6 +27,7 @@ typedef struct level_s {
 
 typedef struct buddy_s {
 	int nlevels;
+	uint64_t total_space;
 	uint64_t *map;
 	level_t *free[0];
 } buddy_t;
@@ -95,11 +96,11 @@ repeat:
 		h = h->next;
 	}
 
-	for (i = 0; i < (TOTAL_SPACE / MAX_UNT + 63) >> 6; i++) {
+	for (i = 0; i < (b->total_space / MAX_UNT + 63) >> 6; i++) {
 		if (b->map[i] != ~0ULL) {
 			idx = ffsll(~b->map[i]) - 1;
 
-			if (((i << 6) + idx) < (TOTAL_SPACE / MAX_UNT)) {
+			if (((i << 6) + idx) < (b->total_space / MAX_UNT)) {
 				b->map[i] |= 1ULL << idx;
 
 				h = calloc(1, sizeof(level_t));
@@ -132,10 +133,10 @@ void test()
 		blocks[i] = balloc(sizes[i]);
 		if (blocks[i] == ~0ULL) {
 			printf("ENOSPC at %ld %d, lost in frag %ld.\n", total, i, 
-					TOTAL_SPACE - total);
+					b->total_space - total);
 			break;
 		} else {
-			assert(blocks[i] < TOTAL_SPACE);
+			assert(blocks[i] < b->total_space);
 			total += 1 << sizes[i];
 		}
 	}
@@ -146,23 +147,32 @@ void test()
 	for (i = 0; i < b->nlevels; i++) 
 		assert(b->free[i] == NULL);
 
-	for (i = 0; i < (TOTAL_SPACE / MAX_UNT + 63) >> 6; i++)
+	for (i = 0; i < (b->total_space / MAX_UNT + 63) >> 6; i++)
 		assert(b->map[i] == 0);
 
 	return;
 }
 
-int main()
+int 
+buddy_init(total_space)
+	uint64_t total_space;
 {
 	int n = ffs(MAX_UNT) - ffs(MIN_UNT) + 1;
 
-	printf("levels:%d\n", n);
 	b = calloc(1, sizeof(buddy_t) + sizeof(level_t *) * n);
 	b->nlevels = n;
+	b->total_space = total_space ? : TOTAL_SPACE;
 
-	n = (TOTAL_SPACE / MAX_UNT + 63) >> 6;
+	n = (total_space / MAX_UNT + 63) >> 6;
 
 	b->map = calloc(1, n * sizeof(uint64_t));
+	return 0;
+}
 
+#if 0
+int main()
+{
+	buddy_init(TOTAL_SPACE);
 	test();
 }
+#endif

@@ -343,7 +343,7 @@ nroot(t)
 	PAGE *meta, *root;
 	pgno_t npg;
 
-	if ((meta = mpool_get(t->bt_mp, 0, 0)) != NULL) {
+	if ((meta = mpool_get_pg(t->bt_mp, 0, 0)) != NULL) {
 		mpool_put(t->bt_mp, meta, 0);
 		return (RET_SUCCESS);
 	}
@@ -351,14 +351,15 @@ nroot(t)
 		return (RET_ERROR);
 	errno = 0;
 
-	if ((meta = mpool_new(t->bt_mp, &npg)) == NULL)
+	if ((meta = mpool_new_pg(t->bt_mp, &npg)) == NULL)
 		return (RET_ERROR);
 
-	if ((root = mpool_new(t->bt_mp, &npg)) == NULL)
+	if ((root = mpool_new_pg(t->bt_mp, &npg)) == NULL)
 		return (RET_ERROR);
 
 	if (npg != P_ROOT)
 		return (RET_ERROR);
+
 	root->pgno = npg;
 	root->prevpg = root->nextpg = P_INVALID;
 	root->lower = BTDATAOFF;

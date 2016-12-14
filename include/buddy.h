@@ -1,5 +1,5 @@
 /*-
- * Copyright (c) 1991, 1993
+ * Copyright (c) 1991, 1993, 1994
  *	The Regents of the University of California.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -29,61 +29,12 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- */
-
-#if defined(LIBC_SCCS) && !defined(lint)
-static char sccsid[] = "@(#)db.c	8.4 (Berkeley) 2/21/94";
-#endif /* LIBC_SCCS and not lint */
-
-#include <sys/types.h>
-
-#include <errno.h>
-#include <fcntl.h>
-#include <stddef.h>
-#include <stdio.h>
-
-#include <db.h>
-
-DB *
-dbopen(fname, flags, mode, type, openinfo)
-	const char *fname;
-	int flags, mode;
-	DBTYPE type;
-	const void *openinfo;
-{
-
-#define	USE_OPEN_FLAGS							\
-	(O_CREAT | O_EXCL | O_EXLOCK | O_NONBLOCK | O_RDONLY |		\
-	 O_RDWR | O_SHLOCK | O_TRUNC)
-
-	if ((flags & ~(USE_OPEN_FLAGS)) == 0)
-		return (__bt_open(fname, flags & USE_OPEN_FLAGS,
-			    mode, openinfo, 0));
-	printf("hai\n");
-	errno = EINVAL;
-	return (NULL);
-}
-
-static int
-__dberr()
-{
-	return (RET_ERROR);
-}
-
-/*
- * __DBPANIC -- Stop.
  *
- * Parameters:
- *	dbp:	pointer to the DB structure.
+ *	@(#)buddy.h	8.2 (Berkeley) 7/14/94
  */
-void
-__dbpanic(dbp)
-	DB *dbp;
-{
-	/* The only thing that can succeed is a close. */
-	dbp->del = (int (*)())__dberr;
-	dbp->fd = (int (*)())__dberr;
-	dbp->get = (int (*)())__dberr;
-	dbp->put = (int (*)())__dberr;
-	dbp->sync = (int (*)())__dberr;
-}
+
+__BEGIN_DECLS
+u_int64_t balloc __P((size_t));
+void bfree __P((u_int64_t, size_t));
+int	buddy_init __P((u_int64_t));
+__END_DECLS
