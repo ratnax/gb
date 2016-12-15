@@ -1,7 +1,10 @@
 #include <linux/slab.h>
 #include <linux/fs.h>
+#include <linux/uaccess.h>
+
 #include <db.h>
 #include "btree.h"
+
 
 static int nroot (BTREE *);
 
@@ -34,6 +37,8 @@ __bt_open(fname, flags, mode, openinfo, dflags)
 	DB *dbp;
 	pgno_t ncache;
 	ssize_t nr;
+	int ret;
+	mm_segment_t old_fs = get_fs();
 
 	t = NULL;
 
@@ -120,13 +125,21 @@ __bt_open(fname, flags, mode, openinfo, dflags)
 			goto einval;
 		}
 		
-		if (IS_ERR((t->bt_file = filp_open(fname, flags, mode))))
+		if (IS_ERR((t->bt_file = filp_open(fname, flags, mode)))) {
+			printk(KERN_ERR "GBFS: open failed (%s)\n", fname);
 			goto err;
+		}
 
 	}
 
-	if (vfs_stat(fname, &sb))
+	set_fs(KERNEL_DS);
+	if ((ret = vfs_stat(fname, &sb))) {
+		set_fs(old_fs);
+		printk(KERN_ERR "GBFS: stat failed (%s) errno=%d\n", fname, ret);
 		goto err;
+	}
+	set_fs(old_fs);
+
 	if (sb.size) {
 		if ((nr = kernel_read(t->bt_file, 0, (char *) &m, sizeof(BTMETA))) < 0)
 			goto err;
@@ -185,8 +198,10 @@ __bt_open(fname, flags, mode, openinfo, dflags)
 
 	/* Initialize the buffer pool. */
 	if ((t->bt_mp =
-	    mpool_open(fname, t->bt_file, t->bt_psize, ncache)) == NULL)
+	    mpool_open(fname, t->bt_file, t->bt_psize, ncache)) == NULL) {
+		printk(KERN_ERR "GBFS: mpool open failed\n");
 		goto err;
+	}
 
 	/* Create a root page if new tree. */
 	if (nroot(t) == RET_ERROR)
@@ -238,14 +253,16 @@ nroot(t)
 //		return (RET_ERROR);
 //	errno = 0;
 
-	if ((meta = mpool_new_pg(t->bt_mp, &npg)) == NULL)
+	if ((meta = mpool_new_pg(t->bt_mp, &npg)) == NULL) 
 		return (RET_ERROR);
 
 	if ((root = mpool_new_pg(t->bt_mp, &npg)) == NULL)
 		return (RET_ERROR);
 
-	if (npg != P_ROOT)
+	if (npg != P_ROOT) {
+		printk(KERN_ERR "GBFS: ROOT page no mismatch\n");
 		return (RET_ERROR);
+	}
 
 	root->pgno = npg;
 	root->prevpg = root->nextpg = P_INVALID;

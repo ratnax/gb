@@ -6,6 +6,7 @@
 #include <asm/atomic.h>
 #include <asm/uaccess.h>	/* copy_to_user */
 
+#include "db.h"
 /*
  * Boilerplate stuff.
  */
@@ -106,6 +107,7 @@ static int gbfs_fill_super (struct super_block *sb, void *data, int silent)
 {
 	struct inode *root;
 	struct dentry *root_dentry;
+	DB *dbp;
 /*
  * Basic parameters.
  */
@@ -132,11 +134,15 @@ static int gbfs_fill_super (struct super_block *sb, void *data, int silent)
 		goto out_iput;
 	sb->s_root = root_dentry;
 
+	dbp = dbopen("/media/x/gbdev", O_CREAT|O_RDWR, 
+			S_IRUSR | S_IWUSR, DB_BTREE, NULL);
+	printk("dbopen: %p\n", dbp);
+	
 	return 0;
 	
-  out_iput:
+out_iput:
 	iput(root);
-  out:
+out:
 	return -ENOMEM;
 }
 
@@ -152,7 +158,7 @@ static struct dentry *gbfs_get_super(struct file_system_type *fst,
 
 static struct file_system_type gbfs_type = {
 	.owner 		= THIS_MODULE,
-	.name		= "gsfs",
+	.name		= "gbfs",
 	.mount		= gbfs_get_super,
 	.kill_sb	= kill_litter_super,
 };

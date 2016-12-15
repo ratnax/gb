@@ -86,7 +86,7 @@ repeat:
 	while (h) {
 		for (i = 0; i < (MAX_UNT / (1 << order) + 63) >> 6; i++) {
 			if (h->map[i] != ~0ULL) {
-				idx = __ffs(~h->map[i]) - 1;
+				idx = __ffs(~h->map[i]);
 				if (((i << 6) + idx) < MAX_UNT / (1 << order)) {
 					h->map[i] |= 1ULL << idx;
 
@@ -100,7 +100,7 @@ repeat:
 
 	for (i = 0; i < (b->total_space / MAX_UNT + 63) >> 6; i++) {
 		if (b->map[i] != ~0ULL) {
-			idx = __ffs(~b->map[i]) - 1;
+			idx = __ffs(~b->map[i]);
 
 			if (((i << 6) + idx) < (b->total_space / MAX_UNT)) {
 				b->map[i] |= 1ULL << idx;
