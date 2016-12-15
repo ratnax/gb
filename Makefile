@@ -1,69 +1,29 @@
-#	@(#)Makefile	8.9 (Berkeley) 7/14/94
+#
+# Makefile for the linux ext2-filesystem routines.
+#
 
-LIBDB=	libdb.a
+obj-m := gbfs.o
 
-OBJ1=
-OBJ2=	bt_close.o bt_conv.o bt_debug.o bt_delete.o bt_get.o bt_open.o \
-	bt_overflow.o bt_page.o bt_put.o bt_search.o bt_split.o \
-	bt_utils.o
-OBJ3=	db.o
-OBJ4=	mpool.o buddy.o
-OBJ5=
+gbfs-y :=	fs/gbfs.o
+gbfs-y +=	btree/bt_close.o \
+			btree/bt_delete.o \
+			btree/bt_get.o \
+			btree/bt_open.o \
+			btree/bt_overflow.o \
+			btree/bt_page.o \
+			btree/bt_put.o \
+			btree/bt_search.o \
+			btree/bt_split.o \
+			btree/bt_utils.o
 
-#MISC=	snprintf.o
+gbfs-y +=	db/db.o
+gbfs-y +=	mpool/mpool.o mpool/buddy.o
 
-${LIBDB}: ${OBJ1} ${OBJ2} ${OBJ3} ${OBJ4} ${OBJ5} ${MISC}
-	rm -f $@
-	ar cq $@ \
-	    `lorder ${OBJ1} ${OBJ2} ${OBJ3} ${OBJ4} ${OBJ5} ${MISC} | tsort`
-	ranlib $@
+ccflags-y := -Wfatal-errors -I$(src)/include
+
+all:
+	make -C /lib/modules/$(shell uname -r)/build M=$(PWD) modules
+#	make -C /home/x/linux/code/linux-4.9/ M=$(PWD) modules
 
 clean:
-	rm -f ${LIBDB} ${OBJ1} ${OBJ2} ${OBJ3} ${OBJ4} ${OBJ5} ${MISC}
-
-OORG=	-O
-CL=    ${CC} -g -c -D__DBINTERFACE_PRIVATE ${OORG} -I. -Iinclude
-#CL=	${CC} -c -DSTATISTICS -DDEBUG -D__DBINTERFACE_PRIVATE ${OORG} -I. -Iinclude
-
-bt_close.o: btree/bt_close.c
-	${CL} -Ibtree btree/bt_close.c
-bt_conv.o: btree/bt_conv.c
-	${CL} -Ibtree btree/bt_conv.c
-bt_debug.o: btree/bt_debug.c
-	${CL} -Ibtree btree/bt_debug.c
-bt_delete.o: btree/bt_delete.c
-	${CL} -Ibtree btree/bt_delete.c
-bt_get.o: btree/bt_get.c
-	${CL} -Ibtree btree/bt_get.c
-bt_open.o: btree/bt_open.c
-	${CL} -Ibtree btree/bt_open.c
-bt_overflow.o: btree/bt_overflow.c
-	${CL} -Ibtree btree/bt_overflow.c
-bt_page.o: btree/bt_page.c
-	${CL} -Ibtree btree/bt_page.c
-bt_put.o: btree/bt_put.c
-	${CL} -Ibtree btree/bt_put.c
-bt_search.o: btree/bt_search.c
-	${CL} -Ibtree btree/bt_search.c
-bt_split.o: btree/bt_split.c
-	${CL} -Ibtree btree/bt_split.c
-bt_stack.o: btree/bt_stack.c
-	${CL} -Ibtree btree/bt_stack.c
-bt_utils.o: btree/bt_utils.c
-	${CL} -Ibtree btree/bt_utils.c
-
-db.o: db/db.c
-	${CL} db/db.c
-
-mpool.o: mpool/mpool.c
-	${CL} -Impool mpool/mpool.c
-buddy.o: mpool/buddy.c
-	${CL} -Impool mpool/buddy.c
-
-
-memmove.o:
-	${CC} -DMEMMOVE -c -O -I. -Iinclude clib/memmove.c
-mktemp.o:
-	${CC} -c -O -I. -Iinclude clib/mktemp.c
-#snprintf.o:
-#	${CC} -c -O -I. -Iinclude clib/snprintf.c
+	make -C /lib/modules/$(shell uname -r)/build M=$(PWD) clean

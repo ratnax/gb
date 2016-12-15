@@ -1,11 +1,8 @@
-#define _GNU_SOURCE
-#include<stdio.h>
-#include<strings.h>
-#include<string.h>
-#include<stdint.h>
-#include<stdlib.h>
-#include<assert.h>
-#include<time.h>
+#include <linux/slab.h>
+#include <linux/types.h>
+#include <linux/bitops.h>
+
+#include <buddy.h>
 
 #define TOTAL_SPACE (1024*1024*1024*4ULL)
 
@@ -34,7 +31,10 @@ typedef struct buddy_s {
 
 buddy_t *b;
 
-void bfree(uint64_t block, int order) 
+void 
+buddy_free(block, order) 
+	uint64_t block;
+	size_t order;
 {
 	int i, idx;
 	level_t *h = b->free[order - ffs(MIN_UNT) + 1]; 
@@ -44,7 +44,7 @@ void bfree(uint64_t block, int order)
 		
 			idx = (block % MAX_UNT) / (1 << order);
 
-			assert(h->map[idx >> 6] & (1ULL << (idx % 64)));
+			BUG_ON(!(h->map[idx >> 6] & (1ULL << (idx % 64))));
 
 			h->map[idx >> 6] &= ~(1ULL << (idx % 64));
 
@@ -62,20 +62,22 @@ void bfree(uint64_t block, int order)
 				if (h->next) 
 					h->next->prev = h->prev;
 
-				assert(b->map[h->idx >> 6] & (1ULL << (h->idx % 64))); 
+				BUG_ON(!(b->map[h->idx >> 6] & (1ULL << (h->idx % 64)))); 
 				b->map[h->idx >> 6] &= ~(1ULL << (h->idx % 64)); 
-				free(h);
+				kfree(h);
 			}
 			return;
 		}
 		h = h->next;
 	}
-	assert(0);
+	BUG();
 	return;
 }
 
 
-uint64_t balloc(int order)
+uint64_t 
+buddy_alloc(order)
+	size_t order;
 {
 	int i, idx, size;
 	level_t *h = b->free[order - ffs(MIN_UNT) + 1]; 
@@ -84,7 +86,7 @@ repeat:
 	while (h) {
 		for (i = 0; i < (MAX_UNT / (1 << order) + 63) >> 6; i++) {
 			if (h->map[i] != ~0ULL) {
-				idx = ffsll(~h->map[i]) - 1;
+				idx = __ffs(~h->map[i]) - 1;
 				if (((i << 6) + idx) < MAX_UNT / (1 << order)) {
 					h->map[i] |= 1ULL << idx;
 
@@ -98,16 +100,15 @@ repeat:
 
 	for (i = 0; i < (b->total_space / MAX_UNT + 63) >> 6; i++) {
 		if (b->map[i] != ~0ULL) {
-			idx = ffsll(~b->map[i]) - 1;
+			idx = __ffs(~b->map[i]) - 1;
 
 			if (((i << 6) + idx) < (b->total_space / MAX_UNT)) {
 				b->map[i] |= 1ULL << idx;
 
-				h = calloc(1, sizeof(level_t));
-
 				size = (MAX_UNT / (1 << order) + 63) >> 6;
-				h->map = calloc(1, size * sizeof(uint64_t));
+				h = kzalloc(sizeof(level_t) + size, GFP_KERNEL);
 
+				h->map = (uint64_t *) (h + 1);
 				h->idx = (i << 6) + idx;
 				h->next = b->free[order - ffs(MIN_UNT) + 1];
 				if (h->next)
@@ -120,6 +121,7 @@ repeat:
 	return ~0ULL; 
 }
 
+#if 0
 
 void test()
 {
@@ -136,7 +138,7 @@ void test()
 					b->total_space - total);
 			break;
 		} else {
-			assert(blocks[i] < b->total_space);
+			BUG_ON(!(blocks[i] < b->total_space));
 			total += 1 << sizes[i];
 		}
 	}
@@ -152,20 +154,22 @@ void test()
 
 	return;
 }
+#endif
 
 int 
 buddy_init(total_space)
 	uint64_t total_space;
 {
-	int n = ffs(MAX_UNT) - ffs(MIN_UNT) + 1;
+	int levels = ffs(MAX_UNT) - ffs(MIN_UNT) + 1;
+	int bitmap_size;
 
-	b = calloc(1, sizeof(buddy_t) + sizeof(level_t *) * n);
-	b->nlevels = n;
+	b = kzalloc(sizeof(buddy_t) + sizeof(level_t *) * levels, GFP_KERNEL);
+	b->nlevels = levels;
 	b->total_space = total_space ? : TOTAL_SPACE;
 
-	n = (total_space / MAX_UNT + 63) >> 6;
 
-	b->map = calloc(1, n * sizeof(uint64_t));
+	bitmap_size	= (b->total_space / MAX_UNT + 63) >> 6;
+	b->map = kzalloc(bitmap_size << 6, GFP_KERNEL);
 	return 0;
 }
 

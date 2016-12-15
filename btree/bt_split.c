@@ -1,61 +1,15 @@
-/*-
- * Copyright (c) 1990, 1993, 1994
- *	The Regents of the University of California.  All rights reserved.
- *
- * This code is derived from software contributed to Berkeley by
- * Mike Olson.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in the
- *    documentation and/or other materials provided with the distribution.
- * 3. All advertising materials mentioning features or use of this software
- *    must display the following acknowledgement:
- *	This product includes software developed by the University of
- *	California, Berkeley and its contributors.
- * 4. Neither the name of the University nor the names of its contributors
- *    may be used to endorse or promote products derived from this software
- *    without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
- * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
- * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
- * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
- * SUCH DAMAGE.
- */
-
-#if defined(LIBC_SCCS) && !defined(lint)
-static char sccsid[] = "@(#)bt_split.c	8.9 (Berkeley) 7/26/94";
-#endif /* LIBC_SCCS and not lint */
-
-#include <sys/types.h>
-
-#include <limits.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-
+#include <linux/slab.h>
 #include <db.h>
 #include "btree.h"
 
-static int	 bt_broot __P((BTREE *, PAGE *, PAGE *, PAGE *));
+static int	 bt_broot (BTREE *, PAGE *, PAGE *, PAGE *);
 static PAGE	*bt_page
-		    __P((BTREE *, PAGE *, PAGE **, PAGE **, indx_t *, size_t));
-static int	 bt_preserve __P((BTREE *, pgno_t));
+		    (BTREE *, PAGE *, PAGE **, PAGE **, indx_t *, size_t);
+static int	 bt_preserve (BTREE *, pgno_t);
 static PAGE	*bt_psplit
-		    __P((BTREE *, PAGE *, PAGE *, PAGE *, indx_t *, size_t));
+		    (BTREE *, PAGE *, PAGE *, PAGE *, indx_t *, size_t);
 static PAGE	*bt_root
-		    __P((BTREE *, PAGE *, PAGE **, PAGE **, indx_t *, size_t));
+		    (BTREE *, PAGE *, PAGE **, PAGE **, indx_t *, size_t);
 
 /*
  * __BT_SPLIT -- Split the tree.
@@ -81,14 +35,14 @@ __bt_split(t, sp, key, data, flags, ilen, argskip)
 	size_t ilen;
 	u_int32_t argskip;
 {
-	BINTERNAL *bi;
-	BLEAF *bl, *tbl;
+	BINTERNAL *bi = NULL;
+	BLEAF *bl = NULL, *tbl;
 	DBT a, b;
 	EPGNO *parent;
 	PAGE *h, *l, *r, *lchild, *rchild;
 	indx_t nxtindex;
 	u_int16_t skip;
-	u_int32_t n, nbytes, nksize;
+	u_int32_t n, nbytes, nksize = 0;
 	int parentsplit;
 	char *dest;
 
@@ -193,7 +147,7 @@ __bt_split(t, sp, key, data, flags, ilen, argskip)
 				nksize = 0;
 			break;
 		default:
-			abort();
+			BUG();
 		}
 
 		/* Split the parent page if necessary or shift the indices. */
@@ -232,7 +186,7 @@ __bt_split(t, sp, key, data, flags, ilen, argskip)
 				goto err1;
 			break;
 		default:
-			abort();
+			BUG();	
 		}
 
 		/* Unpin the held pages. */
@@ -262,12 +216,13 @@ __bt_split(t, sp, key, data, flags, ilen, argskip)
 	 * up the tree and the tree is now inconsistent.  Nothing much we can
 	 * do about it but release any memory we're holding.
 	 */
-err1:	mpool_put(t->bt_mp, lchild, MPOOL_DIRTY);
+err1:	
+	mpool_put(t->bt_mp, lchild, MPOOL_DIRTY);
 	mpool_put(t->bt_mp, rchild, MPOOL_DIRTY);
 
-err2:	mpool_put(t->bt_mp, l, 0);
+err2:	
+	mpool_put(t->bt_mp, l, 0);
 	mpool_put(t->bt_mp, r, 0);
-	__dbpanic(t->bt_dbp);
 	return (RET_ERROR);
 }
 
@@ -325,7 +280,7 @@ bt_page(t, h, lp, rp, skip, ilen)
 	}
 
 	/* Put the new left page for the split into place. */
-	if ((l = (PAGE *)malloc(t->bt_psize)) == NULL) {
+	if ((l = (PAGE *)kmalloc(t->bt_psize, GFP_KERNEL)) == NULL) {
 		mpool_put(t->bt_mp, r, 0);
 		return (NULL);
 	}
@@ -342,7 +297,7 @@ bt_page(t, h, lp, rp, skip, ilen)
 	/* Fix up the previous pointer of the page after the split page. */
 	if (h->nextpg != P_INVALID) {
 		if ((tp = mpool_get_pg(t->bt_mp, h->nextpg, 0)) == NULL) {
-			free(l);
+			kfree(l);
 			/* XXX mpool_free(t->bt_mp, r->pgno); */
 			return (NULL);
 		}
@@ -363,7 +318,7 @@ bt_page(t, h, lp, rp, skip, ilen)
 	memmove(h, l, t->bt_psize);
 	if (tp == l)
 		tp = h;
-	free(l);
+	kfree(l);
 
 	*lp = h;
 	*rp = r;
@@ -476,7 +431,7 @@ bt_broot(t, h, l, r)
 		((BINTERNAL *)dest)->pgno = r->pgno;
 		break;
 	default:
-		abort();
+		BUG();
 	}
 
 	/* There are two keys on the page. */
@@ -547,7 +502,7 @@ bt_psplit(t, h, l, r, pskip, ilen)
 				isbigkey = bl->flags & P_BIGKEY;
 				break;
 			default:
-				abort();
+				BUG();
 			}
 
 		/*
@@ -612,7 +567,7 @@ bt_psplit(t, h, l, r, pskip, ilen)
 			nbytes = NBLEAF(bl);
 			break;
 		default:
-			abort();
+			BUG();
 		}
 		++nxt;
 		r->linp[off] = r->upper -= nbytes;

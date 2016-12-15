@@ -1,118 +1,42 @@
-/*-
- * Copyright (c) 1990, 1993, 1994
- *	The Regents of the University of California.  All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in the
- *    documentation and/or other materials provided with the distribution.
- * 3. All advertising materials mentioning features or use of this software
- *    must display the following acknowledgement:
- *	This product includes software developed by the University of
- *	California, Berkeley and its contributors.
- * 4. Neither the name of the University nor the names of its contributors
- *    may be used to endorse or promote products derived from this software
- *    without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
- * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
- * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
- * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
- * SUCH DAMAGE.
- */
-
-#if defined(LIBC_SCCS) && !defined(lint)
-static char sccsid[] = "@(#)mpool.c	8.5 (Berkeley) 7/26/94";
-#endif /* LIBC_SCCS and not lint */
-
-#include <sys/param.h>
-#include <sys/queue.h>
-#include <sys/stat.h>
-
-#include <errno.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
-#include <assert.h>
-
+#include <linux/slab.h>
 #include <db.h>
 
 #define	__MPOOLINTERFACE_PRIVATE
 #include <mpool.h>
 #include <buddy.h>
 
-static BKT *mpool_look __P((MPOOL *, pgno_t));
-static int  mpool_write __P((MPOOL *, BKT *));
+static BKT *mpool_look (MPOOL *, pgno_t);
+static int  mpool_write (MPOOL *, BKT *);
+static BKT *mpool_bkt(MPOOL *, size_t);
+static void *__mpool_get(MPOOL *, pgno_t, int, u_int);
 
 /*
  * mpool_open --
  *	Initialize a memory pool.
  */
 MPOOL *
-mpool_open(key, fd, pagesize, maxcache)
-	void *key;
-	int fd;
+mpool_open(fname, file, pagesize, maxcache)
+	const char *fname;
+	struct file *file;
 	pgno_t pagesize, maxcache;
 {
-	struct stat sb;
 	MPOOL *mp;
 	int entry;
 
-	/*
-	 * Get information about the file.
-	 *
-	 * XXX
-	 * We don't currently handle pipes, although we should.
-	 */
-	if (fstat(fd, &sb))
-		return (NULL);
-	if (!S_ISREG(sb.st_mode)) {
-		errno = ESPIPE;
-		return (NULL);
-	}
-
 	/* Allocate and initialize the MPOOL cookie. */
-	if ((mp = (MPOOL *)calloc(1, sizeof(MPOOL))) == NULL)
+	if ((mp = (MPOOL *)kzalloc(sizeof(MPOOL), GFP_KERNEL)) == NULL)
 		return (NULL);
-	CIRCLEQ_INIT(&mp->lqh);
+	INIT_LIST_HEAD(&mp->lqh);
 	for (entry = 0; entry < HASHSIZE; ++entry)
-		CIRCLEQ_INIT(&mp->hqh[entry]);
+		INIT_HLIST_HEAD(&mp->hqh[entry]);
 	mp->maxcache = maxcache;
-	mp->npages = sb.st_size / pagesize;
 	mp->pagesize = pagesize;
-	mp->fd = fd;
+	mp->file = file;
 
 	buddy_init(0);
 	return (mp);
 }
 
-/*
- * mpool_filter --
- *	Initialize input/output filters.
- */
-void
-mpool_filter(mp, pgin, pgout, pgcookie)
-	MPOOL *mp;
-	void (*pgin) __P((void *, pgno_t, void *));
-	void (*pgout) __P((void *, pgno_t, void *));
-	void *pgcookie;
-{
-	mp->pgin = pgin;
-	mp->pgout = pgout;
-	mp->pgcookie = pgcookie;
-}
-	
 /*
  * mpool_bkt
  *	Get a page from the cache (or create one).
@@ -122,8 +46,8 @@ mpool_bkt(mp, npgs)
 	MPOOL *mp;
 	size_t npgs;
 {
-	struct _hqh *head;
-	BKT *bp;
+	struct hlist_head *head;
+	BKT *bp, *tmp;
 
 	/* If under the max cached, always create a new page. */
 	if (mp->curcache < mp->maxcache)
@@ -135,8 +59,7 @@ mpool_bkt(mp, npgs)
 	 * off any lists.  If we don't find anything we grow the cache anyway.
 	 * The cache never shrinks.
 	 */
-	for (bp = mp->lqh.cqh_first;
-	    bp != (void *)&mp->lqh; bp = bp->q.cqe_next)
+	list_for_each_entry_safe(bp, tmp, &mp->lqh, q) {
 		if (!(bp->pinned)) {
 			/* Flush if dirty. */
 			if (bp->flags & MPOOL_DIRTY &&
@@ -145,18 +68,22 @@ mpool_bkt(mp, npgs)
 
 			/* Remove from the hash and lru queues. */
 			head = &mp->hqh[HASHKEY(bp->pgno)];
-			CIRCLEQ_REMOVE(head, bp, hq);
-			CIRCLEQ_REMOVE(&mp->lqh, bp, q);
-			free(bp);
+			list_del(&bp->q);
+			hlist_del(&bp->hq);
+			kfree(bp);
 			break;
 		}
+	}
 
-new:	if ((bp = (BKT *)malloc(sizeof(BKT) + npgs * mp->pagesize)) == NULL)
-		return (NULL);
-	bp->page = (char *)bp + sizeof(BKT);
-	bp->npgs = npgs;
-	bp->pinned = 0;
-	++mp->curcache;
+new:	
+	bp = (BKT *)kmalloc(sizeof(BKT) + npgs * mp->pagesize, GFP_KERNEL);
+	if (bp) {
+		bp->page = (char *)bp + sizeof(BKT);
+		bp->npgs = npgs;
+		bp->pinned = 0;
+		INIT_HLIST_NODE(&bp->hq);
+		++mp->curcache;
+	}
 	return (bp);
 }
 
@@ -165,42 +92,35 @@ new:	if ((bp = (BKT *)malloc(sizeof(BKT) + npgs * mp->pagesize)) == NULL)
  * mpool_get
  *	Get a page.
  */
-void *
+static void *
 __mpool_get(mp, pgno, npgs, flags)
 	MPOOL *mp;
 	pgno_t pgno;
 	int npgs;
 	u_int flags;				/* XXX not used? */
 {
-	struct _hqh *head;
+	struct hlist_head *head;
 	BKT *bp;
 	off_t off;
-	int nr, i;
+	int nr;
 
-
-	/* Check for attempt to retrieve a non-existent page. */
-	if (0 && pgno >= mp->npages) {
-		errno = EINVAL;
-		return (NULL);
-	}
 
 	/* Check for a page that is cached. */
 	if ((bp = mpool_look(mp, pgno)) != NULL) {
 		if (bp->pinned) {
-			(void)fprintf(stderr,
-			    "mpool_get: page %d already pinned\n", bp->pgno);
-			abort();
+			printk(KERN_ERR "mpool_get: page %d already pinned\n", bp->pgno);
+			BUG();
 		}
-		assert(bp->npgs == npgs);
+		BUG_ON(bp->npgs != npgs);
 		/*
 		 * Move the page to the head of the hash chain and the tail
 		 * of the lru chain.
 		 */
 		head = &mp->hqh[HASHKEY(bp->pgno)];
-		CIRCLEQ_REMOVE(head, bp, hq);
-		CIRCLEQ_INSERT_HEAD(head, bp, hq);
-		CIRCLEQ_REMOVE(&mp->lqh, bp, q);
-		CIRCLEQ_INSERT_TAIL(&mp->lqh, bp, q);
+		hlist_del(&bp->hq);
+		hlist_add_head(&bp->hq, head);
+		list_del(&bp->q);
+		list_add_tail(&bp->q, &mp->lqh);
 
 		/* Return a pinned page. */
 		bp->pinned++;
@@ -214,13 +134,11 @@ __mpool_get(mp, pgno, npgs, flags)
 	/* Read in the contents. */
 	if (!(flags & MPOOL_NEW)) {
 		off = mp->pagesize * pgno;
-		if (lseek(mp->fd, off, SEEK_SET) != off)
-			return (NULL);
 
-		nr = read(mp->fd, bp->page, npgs * mp->pagesize);
+		nr = kernel_read(mp->file, off, bp->page, npgs * mp->pagesize);
 		if (nr != npgs * mp->pagesize) {
-			if (nr >= 0)
-				errno = EFTYPE;
+	//		if (nr >= 0)
+	//			errno = EFTYPE; TODO
 			return (NULL);
 		}
 	}
@@ -235,14 +153,8 @@ __mpool_get(mp, pgno, npgs, flags)
 	 * of the lru chain.
 	 */
 	head = &mp->hqh[HASHKEY(bp->pgno)];
-	CIRCLEQ_INSERT_HEAD(head, bp, hq);
-	CIRCLEQ_INSERT_TAIL(&mp->lqh, bp, q);
-
-	/* Run through the user's filter. */
-	if (mp->pgin != NULL) {
-		for (i = 0; i < npgs; i++)
-			(mp->pgin)(mp->pgcookie, bp->pgno + i, bp->page + i * mp->pagesize);
-	}
+	hlist_add_head(&bp->hq, head);
+	list_add_tail(&bp->q, &mp->lqh);
 
 	return (bp->page);
 }
@@ -258,14 +170,12 @@ mpool_new(mp, pgnoaddr, offaddr, size)
 	off_t *offaddr;
 	size_t size;
 {
-	struct _hqh *head;
-	BKT *bp;
 	loff_t blk;
 	size_t order;
 
 	for (order = 0; size > (1 << order); order++);
 	
-	blk = balloc(order);
+	blk = buddy_alloc(order);
 
 	*pgnoaddr = blk / mp->pagesize;
 	*offaddr = blk % mp->pagesize;
@@ -285,7 +195,7 @@ mpool_new_pg (mp, pgnoaddr)
 
 	for (order = 0; mp->pagesize > (1 << order); order++);
 
-	*pgnoaddr = balloc(order) / mp->pagesize;
+	*pgnoaddr = buddy_alloc(order) / mp->pagesize;
 	return __mpool_get(mp, *pgnoaddr, 1, MPOOL_NEW);
 }
 
@@ -299,8 +209,6 @@ mpool_get(mp, blk, size, pgnoaddr, offaddr, flags)
 	off_t *offaddr;
 	u_int flags;			
 {
-	struct _hqh *head;
-	BKT *bp;
 	int order;
 
 	for (order = 0; size > (1 << order); order++);
@@ -335,9 +243,8 @@ mpool_put(mp, page, flags)
 	BKT *bp = (BKT *)((char *)page - sizeof(BKT));
 
 	if (!(bp->pinned)) {
-		(void)fprintf(stderr,
-		    "mpool_put: page %d not pinned\n", bp->pgno);
-		abort();
+		printk(KERN_ERR "mpool_put: page %d not pinned\n", bp->pgno);
+		BUG();
 	}
 
 	bp->pinned--;
@@ -357,7 +264,8 @@ int mpool_free_pg(mp, page)
 
 	for (order = 0; mp->pagesize > (1 << order); order++);
 
-	bfree(bp->pgno * mp->pagesize, order);
+	buddy_free(bp->pgno * mp->pagesize, order);
+	return 0;
 }
 
 /*
@@ -368,16 +276,16 @@ int
 mpool_close(mp)
 	MPOOL *mp;
 {
-	BKT *bp;
+	BKT *bp, *tmp;
 
 	/* Free up any space allocated to the lru pages. */
-	while ((bp = mp->lqh.cqh_first) != (void *)&mp->lqh) {
-		CIRCLEQ_REMOVE(&mp->lqh, mp->lqh.cqh_first, q);
-		free(bp);
+	list_for_each_entry_safe(bp, tmp, &mp->lqh, q) {
+		list_del(&bp->q);
+		kfree(bp);
 	}
 
 	/* Free the MPOOL cookie. */
-	free(mp);
+	kfree(mp);
 	return (RET_SUCCESS);
 }
 
@@ -392,14 +300,14 @@ mpool_sync(mp)
 	BKT *bp;
 
 	/* Walk the lru chain, flushing any dirty pages to disk. */
-	for (bp = mp->lqh.cqh_first;
-	    bp != (void *)&mp->lqh; bp = bp->q.cqe_next)
+	list_for_each_entry(bp, &mp->lqh, q) {
 		if (bp->flags & MPOOL_DIRTY &&
 		    mpool_write(mp, bp) == RET_ERROR)
 			return (RET_ERROR);
+	}
 
 	/* Sync the file descriptor. */
-	return (fsync(mp->fd) ? RET_ERROR : RET_SUCCESS);
+	return (vfs_fsync(mp->file, 0) ? RET_ERROR : RET_SUCCESS);
 }
 
 /*
@@ -411,25 +319,11 @@ mpool_write(mp, bp)
 	MPOOL *mp;
 	BKT *bp;
 {
-	int i;
 	off_t off;
 	size_t bwrite;
 
-#ifdef STATISTICS
-	++mp->pagewrite;
-#endif
-
-	/* Run through the user's filter. */
-	if (mp->pgout) {
-		for (i = 0; i < bp->npgs; i++) 
-			(mp->pgout)(mp->pgcookie, bp->pgno + i, 
-					bp->page + mp->pagesize * i);
-	}
-
 	off = mp->pagesize * bp->pgno;
-	if (lseek(mp->fd, off, SEEK_SET) != off)
-		return (RET_ERROR);
-	bwrite = write(mp->fd, bp->page, mp->pagesize * bp->npgs);
+	bwrite = kernel_write(mp->file, bp->page, mp->pagesize * bp->npgs, off);
    	if (bwrite != bp->npgs * mp->pagesize)
 		return (RET_ERROR);
 
@@ -446,19 +340,14 @@ mpool_look(mp, pgno)
 	MPOOL *mp;
 	pgno_t pgno;
 {
-	struct _hqh *head;
+	struct hlist_head *head;
 	BKT *bp;
 
 	head = &mp->hqh[HASHKEY(pgno)];
-	for (bp = head->cqh_first; bp != (void *)head; bp = bp->hq.cqe_next)
+	hlist_for_each_entry(bp, head, hq) {
 		if (bp->pgno == pgno) {
-#ifdef STATISTICS
-			++mp->cachehit;
-#endif
 			return (bp);
 		}
-#ifdef STATISTICS
-	++mp->cachemiss;
-#endif
+	}
 	return (NULL);
 }

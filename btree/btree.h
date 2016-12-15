@@ -1,41 +1,5 @@
-/*-
- * Copyright (c) 1991, 1993, 1994
- *	The Regents of the University of California.  All rights reserved.
- *
- * This code is derived from software contributed to Berkeley by
- * Mike Olson.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in the
- *    documentation and/or other materials provided with the distribution.
- * 3. All advertising materials mentioning features or use of this software
- *    must display the following acknowledgement:
- *	This product includes software developed by the University of
- *	California, Berkeley and its contributors.
- * 4. Neither the name of the University nor the names of its contributors
- *    may be used to endorse or promote products derived from this software
- *    without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
- * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
- * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
- * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
- * SUCH DAMAGE.
- *
- *	@(#)btree.h	8.11 (Berkeley) 8/17/94
- */
-
+#ifndef _BTREE_H_
+#define _BTREE_H_
 /* Macros to set/clear/test flags. */
 #define	F_SET(p, f)	(p)->flags |= (f)
 #define	F_CLR(p, f)	(p)->flags &= ~(f)
@@ -204,11 +168,6 @@ typedef struct _btmeta {
 	u_int32_t	magic;		/* magic number */
 	u_int32_t	version;	/* version */
 	u_int32_t	psize;		/* page size */
-	u_int32_t	free;		/* page number of first free page */
-	u_int32_t	nrecs;		/* R: number of records */
-
-#define	SAVEMETA	(B_NODUPS | R_RECNO)
-	u_int32_t	flags;		/* bt_flags & SAVEMETA */
 } BTMETA;
 
 /* The in-memory btree/recno data structure. */
@@ -233,39 +192,31 @@ typedef struct _btree {
 	DBT	  bt_rkey;		/* returned key */
 	DBT	  bt_rdata;		/* returned data */
 
-	int	  bt_fd;		/* tree file descriptor */
+	struct file *bt_file;		/* tree file descriptor */
 
-	pgno_t	  bt_free;		/* next free page */
 	u_int32_t bt_psize;		/* page size */
 	indx_t	  bt_ovflsize;		/* cut-off for key/data overflow */
-	int	  bt_lorder;		/* byte order */
 
 					/* B: key comparison function */
-	int	(*bt_cmp) __P((const DBT *, const DBT *));
+	int	(*bt_cmp) (const DBT *, const DBT *);
 					/* B: prefix comparison function */
-	size_t  (*bt_pfx) __P((const DBT *, const DBT *));
+	size_t  (*bt_pfx) (const DBT *, const DBT *);
 
 /*
  * NB:
  * B_NODUPS and R_RECNO are stored on disk, and may not be changed.
  */
-#define	B_INMEM		0x00001		/* in-memory tree */
 #define	B_METADIRTY	0x00002		/* need to write metadata */
 #define	B_MODIFIED	0x00004		/* tree modified */
-#define	B_NEEDSWAP	0x00008		/* if byte order requires swapping */
 #define	B_RDONLY	0x00010		/* read-only tree */
-
-#define	B_NODUPS	0x00020		/* no duplicate keys permitted */
-#define	R_RECNO		0x00080		/* record oriented tree */
 
 #define	R_CLOSEFP	0x00040		/* opened a file pointer */
 #define	R_EOF		0x00100		/* end of input file reached. */
 #define	R_MEMMAPPED	0x00200		/* memory mapped file. */
 #define	R_INMEM		0x00400		/* in-memory file */
 #define	R_MODIFIED	0x00800		/* modified file */
-#define	R_RDONLY	0x01000		/* read-only file */
 
 	u_int32_t flags;
 } BTREE;
-
 #include "extern.h"
+#endif

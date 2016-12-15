@@ -1,13 +1,3 @@
-/*
- * Demonstrate a trivial filesystem using libfs.
- *
- * Copyright 2002, 2003 Jonathan Corbet <corbet@lwn.net>
- * This file may be redistributed under the terms of the GNU GPL.
- *
- * Chances are that this code will crash your system, delete your
- * nethack high scores, and set your disk drives on fire.  You have
- * been warned.
- */
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/module.h>
@@ -32,7 +22,7 @@ MODULE_AUTHOR("Jonathan Corbet");
  * is the "mode" parameter, which says whether this is a directory
  * or file, and gives the permissions.
  */
-static struct inode *lfs_make_inode(struct super_block *sb, int mode)
+static struct inode *gbfs_make_inode(struct super_block *sb, int mode)
 {
 	struct inode *ret = new_inode(sb);
 
@@ -55,7 +45,7 @@ static struct inode *lfs_make_inode(struct super_block *sb, int mode)
  * Open a file.  All we have to do here is to copy over a
  * copy of the counter pointer so it's easier to get at.
  */
-static int lfs_open(struct inode *inode, struct file *filp)
+static int gbfs_open(struct inode *inode, struct file *filp)
 {
 	filp->private_data = inode->i_private;
 	return 0;
@@ -68,7 +58,7 @@ static int lfs_open(struct inode *inode, struct file *filp)
  * at the beginning of the file (offset = 0); otherwise we end up counting
  * by twos.
  */
-static ssize_t lfs_read_file(struct file *filp, char *buf,
+static ssize_t gbfs_read_file(struct file *filp, char *buf,
 		size_t count, loff_t *offset)
 {
 	*offset += count;
@@ -78,7 +68,7 @@ static ssize_t lfs_read_file(struct file *filp, char *buf,
 /*
  * Write a file.
  */
-static ssize_t lfs_write_file(struct file *filp, const char *buf,
+static ssize_t gbfs_write_file(struct file *filp, const char *buf,
 		size_t count, loff_t *offset)
 {
 	return count;
@@ -88,10 +78,10 @@ static ssize_t lfs_write_file(struct file *filp, const char *buf,
 /*
  * Now we can put together our file operations structure.
  */ 
-static struct file_operations lfs_file_ops = {
-	.open	= lfs_open,
-	.read 	= lfs_read_file,
-	.write  = lfs_write_file,
+static struct file_operations gbfs_file_ops = {
+	.open	= gbfs_open,
+	.read 	= gbfs_read_file,
+	.write  = gbfs_write_file,
 };
 #endif
 
@@ -104,7 +94,7 @@ static struct file_operations lfs_file_ops = {
  * Our superblock operations, both of which are generic kernel ops
  * that we don't have to write ourselves.
  */
-static struct super_operations lfs_s_ops = {
+static struct super_operations gbfs_s_ops = {
 	.statfs		= simple_statfs,
 	.drop_inode	= generic_delete_inode,
 };
@@ -112,7 +102,7 @@ static struct super_operations lfs_s_ops = {
 /*
  * "Fill" a superblock with mundane stuff.
  */
-static int lfs_fill_super (struct super_block *sb, void *data, int silent)
+static int gbfs_fill_super (struct super_block *sb, void *data, int silent)
 {
 	struct inode *root;
 	struct dentry *root_dentry;
@@ -122,14 +112,14 @@ static int lfs_fill_super (struct super_block *sb, void *data, int silent)
 	sb->s_blocksize = PAGE_SIZE;
 	sb->s_blocksize_bits = PAGE_SHIFT;
 	sb->s_magic = LFS_MAGIC;
-	sb->s_op = &lfs_s_ops;
+	sb->s_op = &gbfs_s_ops;
 /*
  * We need to conjure up an inode to represent the root directory
  * of this filesystem.  Its operations all come from libfs, so we
  * don't have to mess with actually *doing* things inside this
  * directory.
  */
-	root = lfs_make_inode (sb, S_IFDIR | 0755);
+	root = gbfs_make_inode (sb, S_IFDIR | 0755);
 	if (! root)
 		goto out;
 	root->i_op = &simple_dir_inode_operations;
@@ -154,16 +144,16 @@ static int lfs_fill_super (struct super_block *sb, void *data, int silent)
 /*
  * Stuff to pass in when registering the filesystem.
  */
-static struct dentry *lfs_get_super(struct file_system_type *fst,
+static struct dentry *gbfs_get_super(struct file_system_type *fst,
 		int flags, const char *devname, void *data)
 {
-	return mount_bdev(fst, flags, devname, data, lfs_fill_super);
+	return mount_bdev(fst, flags, devname, data, gbfs_fill_super);
 }
 
-static struct file_system_type lfs_type = {
+static struct file_system_type gbfs_type = {
 	.owner 		= THIS_MODULE,
-	.name		= "lwnfs",
-	.mount		= lfs_get_super,
+	.name		= "gsfs",
+	.mount		= gbfs_get_super,
 	.kill_sb	= kill_litter_super,
 };
 
@@ -173,15 +163,15 @@ static struct file_system_type lfs_type = {
 /*
  * Get things set up.
  */
-static int __init lfs_init(void)
+static int __init gbfs_init(void)
 {
-	return register_filesystem(&lfs_type);
+	return register_filesystem(&gbfs_type);
 }
 
-static void __exit lfs_exit(void)
+static void __exit gbfs_exit(void)
 {
-	unregister_filesystem(&lfs_type);
+	unregister_filesystem(&gbfs_type);
 }
 
-module_init(lfs_init);
-module_exit(lfs_exit);
+module_init(gbfs_init);
+module_exit(gbfs_exit);
