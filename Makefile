@@ -4,7 +4,7 @@
 
 obj-m := gbfs.o
 
-gbfs-y :=	fs/gbfs.o
+gbfs-y :=	fs/inode.o fs/file.o
 gbfs-y +=	btree/bt_close.o \
 			btree/bt_delete.o \
 			btree/bt_get.o \
