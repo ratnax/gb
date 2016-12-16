@@ -320,7 +320,7 @@ static void gbfs_kill_sb(struct super_block *sb)
 	struct gbfs_fs_info *fsi = sb->s_fs_info;
 
 	if (fsi->dbp)
-		dbp->close(fsi->dbp);
+		fsi->dbp->close(fsi->dbp);
 
 	if (sb->s_bdi)
 		bdi_destroy(sb->s_bdi);
