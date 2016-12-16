@@ -219,12 +219,20 @@ static void gbfs_put_super(struct super_block *sb)
 {
 	struct gbfs_fs_info *fsi = sb->s_fs_info;
 
+	if (fsi->dbp) {
+		int ret = fsi->dbp->sync(fsi->dbp, 0);
+		if (ret) 
+			printk(KERN_ERR "GBFS: db sync failed (%d).\n", ret);
+		
+		ret = fsi->dbp->close(fsi->dbp);
+		if (ret) 
+			printk(KERN_ERR "GBFS: db close failed (%d).\n", ret);
+	}
+
 	if (sb->s_bdi) {
 		bdi_destroy(sb->s_bdi);
 		sb->s_bdi = NULL;
 	}
-	if (fsi->dbp)
-		fsi->dbp->close(fsi->dbp);
 	kfree(sb->s_fs_info);
 }
 
