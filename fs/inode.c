@@ -215,9 +215,23 @@ static const struct inode_operations gbfs_dir_inode_operations = {
 	.rename		= simple_rename,
 };
 
+static void gbfs_put_super(struct super_block *sb)
+{
+	struct gbfs_fs_info *fsi = sb->s_fs_info;
+
+	if (sb->s_bdi) {
+		bdi_destroy(sb->s_bdi);
+		sb->s_bdi = NULL;
+	}
+	if (fsi->dbp)
+		fsi->dbp->close(fsi->dbp);
+	kfree(sb->s_fs_info);
+}
+
 static const struct super_operations gbfs_ops = {
 	.statfs		= simple_statfs,
 	.drop_inode	= generic_delete_inode,
+	.put_super = gbfs_put_super,
 	.show_options	= generic_show_options,
 };
 
@@ -321,15 +335,6 @@ struct dentry *gbfs_mount(struct file_system_type *fs_type,
 
 static void gbfs_kill_sb(struct super_block *sb)
 {
-	struct gbfs_fs_info *fsi = sb->s_fs_info;
-
-	if (fsi->dbp)
-		fsi->dbp->close(fsi->dbp);
-
-	if (sb->s_bdi)
-		bdi_destroy(sb->s_bdi);
-
-	kfree(sb->s_fs_info);
 	kill_litter_super(sb);
 }
 
