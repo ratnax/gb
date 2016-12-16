@@ -317,8 +317,14 @@ struct dentry *gbfs_mount(struct file_system_type *fs_type,
 
 static void gbfs_kill_sb(struct super_block *sb)
 {
+	struct gbfs_fs_info *fsi = sb->s_fs_info;
+
+	if (fsi->dbp)
+		dbp->close(fsi->dbp);
+
 	if (sb->s_bdi)
 		bdi_destroy(sb->s_bdi);
+
 	kfree(sb->s_fs_info);
 	kill_litter_super(sb);
 }
