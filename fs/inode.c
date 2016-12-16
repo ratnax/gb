@@ -101,6 +101,10 @@ static int gbfs_readpage(struct file *file, struct page *page)
 	kdbt.size = sizeof(key);
 
 	err = fsi->dbp->get(fsi->dbp, &kdbt, &vdbt, 0);
+
+	if (!err) 
+		SetPageUptodate(page);
+	
 	unlock_page(page);
 	return err;	
 }
