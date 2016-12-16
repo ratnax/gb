@@ -39,17 +39,77 @@
 
 #include "gbfs.h"
 #include "internal.h"
+#include "db.h"
 
 #define RAMFS_DEFAULT_MODE	0755
 
 static const struct super_operations gbfs_ops;
 static const struct inode_operations gbfs_dir_inode_operations;
 
+struct gbfs_mount_opts {
+	umode_t mode;
+};
+
+struct gbfs_fs_info {
+	struct gbfs_mount_opts mount_opts;
+	struct backing_dev_info bdi;
+	DB *dbp;
+};
+
+typedef struct gbfs_key_s {
+	ino_t ino;
+	loff_t off;
+} gbfs_key_t;
+
+static int gbfs_writepage(struct page *page, struct writeback_control *wbc)
+{
+	int err;
+	struct inode *inode = page->mapping->host;
+	struct gbfs_fs_info *fsi = inode->i_sb->s_fs_info;
+	gbfs_key_t key;
+	DBT kdbt, vdbt;
+
+	key.ino = inode->i_ino;
+	key.off = page_offset(page);
+
+	kdbt.data = &key;
+	kdbt.size = sizeof(key);
+
+	vdbt.data = page_address(page);
+	vdbt.size = PAGE_SIZE;
+
+    set_page_writeback(page);
+
+	err = fsi->dbp->put(fsi->dbp, &kdbt, &vdbt, 0); 
+    end_page_writeback(page);
+    unlock_page(page);
+	return err;
+}
+
+static int gbfs_readpage(struct file *file, struct page *page)
+{
+	int err;
+	struct inode *inode = page->mapping->host;
+	struct gbfs_fs_info *fsi = inode->i_sb->s_fs_info;
+	gbfs_key_t key;
+	DBT kdbt, vdbt;
+
+	key.ino = inode->i_ino;
+	key.off = page_offset(page);
+
+	kdbt.data = &key;
+	kdbt.size = sizeof(key);
+
+	err = fsi->dbp->get(fsi->dbp, &kdbt, &vdbt, 0);
+	unlock_page(page);
+	return err;	
+}
+
 static const struct address_space_operations gbfs_aops = {
-	.readpage	= simple_readpage,
+	.readpage	= gbfs_readpage,
+	.writepage	= gbfs_writepage,
 	.write_begin	= simple_write_begin,
 	.write_end	= simple_write_end,
-//	.set_page_dirty	= __set_page_dirty_no_writeback,
 };
 
 struct inode *gbfs_get_inode(struct super_block *sb,
@@ -157,10 +217,6 @@ static const struct super_operations gbfs_ops = {
 	.show_options	= generic_show_options,
 };
 
-struct gbfs_mount_opts {
-	umode_t mode;
-};
-
 enum {
 	Opt_mode,
 	Opt_err
@@ -169,10 +225,6 @@ enum {
 static const match_table_t tokens = {
 	{Opt_mode, "mode=%o"},
 	{Opt_err, NULL}
-};
-
-struct gbfs_fs_info {
-	struct gbfs_mount_opts mount_opts;
 };
 
 static int gbfs_parse_options(char *data, struct gbfs_mount_opts *opts)
@@ -231,11 +283,29 @@ int gbfs_fill_super(struct super_block *sb, void *data, int silent)
 	sb->s_op		= &gbfs_ops;
 	sb->s_time_gran		= 1;
 
+
+	fsi->bdi.name = "gbfs";
+	fsi->bdi.ra_pages = (VM_MAX_READAHEAD * 1024) / PAGE_SIZE;
+
+	err = bdi_init(&fsi->bdi);
+	if (err)
+		return err;
+
+	err = bdi_register_dev(&fsi->bdi, sb->s_dev);
+	if (err)
+		return err;
+
+	sb->s_bdi = &fsi->bdi;
+
 	inode = gbfs_get_inode(sb, NULL, S_IFDIR | fsi->mount_opts.mode, 0);
 	sb->s_root = d_make_root(inode);
 	if (!sb->s_root)
 		return -ENOMEM;
 
+	fsi->dbp = dbopen("/media/x/gbdev", O_CREAT|O_RDWR, 
+			S_IRUSR | S_IWUSR, DB_BTREE, NULL);
+	printk("dbopen: %p\n", fsi->dbp);
+	
 	return 0;
 }
 
@@ -247,6 +317,8 @@ struct dentry *gbfs_mount(struct file_system_type *fs_type,
 
 static void gbfs_kill_sb(struct super_block *sb)
 {
+	if (sb->s_bdi)
+		bdi_destroy(sb->s_bdi);
 	kfree(sb->s_fs_info);
 	kill_litter_super(sb);
 }
