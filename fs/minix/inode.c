@@ -19,6 +19,8 @@
 #include <linux/vfs.h>
 #include <linux/writeback.h>
 
+#include "keys.h"
+
 static int minix_write_inode(struct inode *inode,
 		struct writeback_control *wbc);
 static int minix_statfs(struct dentry *dentry, struct kstatfs *buf);
@@ -42,6 +44,15 @@ static void minix_put_super(struct super_block *sb)
 	int i;
 	struct minix_sb_info *sbi = minix_sb(sb);
 
+	if (sbi->dbp) {
+		int ret;
+	   
+		ret	= sbi->dbp->sync(sbi->dbp, 0);
+		printk("gbfs: btree sync status (%d).\n", ret);
+
+		ret = sbi->dbp->close(sbi->dbp);
+		printk("gbfs: btree close status (%d).\n", ret);
+	}
 	if (!(sb->s_flags & MS_RDONLY)) {
 		if (sbi->s_version != MINIX_V3)	 /* s_state is now out from V3 sb */
 			sbi->s_ms->s_state = sbi->s_mount_state;
@@ -305,6 +316,9 @@ static int minix_fill_super(struct super_block *s, void *data, int silent)
 		printk("MINIX-fs: mounting file system with errors, "
 			"running fsck is recommended\n");
 
+	sbi->dbp = dbopen("/media/x/gbdev", O_CREAT|O_RDWR, 
+			S_IRUSR | S_IWUSR, DB_BTREE, NULL);
+	printk("dbopen: %p\n", sbi->dbp);
 	return 0;
 
 out_no_root:
@@ -383,12 +397,62 @@ static int minix_get_block(struct inode *inode, sector_t block,
 
 static int minix_writepage(struct page *page, struct writeback_control *wbc)
 {
-	return block_write_full_page(page, minix_get_block, wbc);
+	int err;
+	struct inode *inode = page->mapping->host;
+	struct minix_sb_info *sbi = minix_sb(inode->i_sb);
+
+	gbfs_data_key_t key;
+	DBT kdbt, vdbt;
+
+	key.ino = inode->i_ino;
+	key.pgoff = page_offset(page);
+
+	kdbt.data = &key;
+	kdbt.size = sizeof(key);
+
+	vdbt.data = page_address(page);
+	vdbt.size = PAGE_SIZE;
+
+    set_page_writeback(page);
+
+	err = sbi->dbp->put(sbi->dbp, &kdbt, &vdbt, 0); 
+    end_page_writeback(page);
+    unlock_page(page);
+
+	printk(KERN_ERR "writepage: %lu %llu %d\n", inode->i_ino, 
+				page_offset(page), err);
+	return err;
 }
 
 static int minix_readpage(struct file *file, struct page *page)
 {
-	return block_read_full_page(page,minix_get_block);
+	int err;
+	struct inode *inode = page->mapping->host;
+	struct minix_sb_info *sbi = minix_sb(inode->i_sb);
+
+	gbfs_data_key_t key;
+	DBT kdbt, vdbt;
+
+	key.ino = inode->i_ino;
+	key.pgoff = page_offset(page);
+
+	kdbt.data = &key;
+	kdbt.size = sizeof(key);
+
+	err = sbi->dbp->get(sbi->dbp, &kdbt, &vdbt, 0);
+	if (!err) {
+		memcpy(page_address(page), vdbt.data, PAGE_SIZE);
+		SetPageUptodate(page);
+	} else if (err == 1) {
+		memset(page_address(page), 0, PAGE_SIZE);
+		SetPageUptodate(page);
+	}
+
+	unlock_page(page);
+
+	printk(KERN_ERR "readpage: %lu %llu %d\n", inode->i_ino, 
+			page_offset(page), err);
+	return err;	
 }
 
 int minix_prepare_chunk(struct page *page, loff_t pos, unsigned len)
@@ -656,7 +720,7 @@ static struct dentry *minix_mount(struct file_system_type *fs_type,
 
 static struct file_system_type minix_fs_type = {
 	.owner		= THIS_MODULE,
-	.name		= "minix",
+	.name		= "gbfs",
 	.mount		= minix_mount,
 	.kill_sb	= kill_block_super,
 	.fs_flags	= FS_REQUIRES_DEV,

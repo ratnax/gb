@@ -79,20 +79,6 @@ typedef struct {
 	int	lorder;		/* byte order */
 } HASHINFO;
 
-/* Structure used to pass parameters to the record routines. */
-typedef struct {
-#define	R_FIXEDLEN	0x01	/* fixed-length records */
-#define	R_NOKEY		0x02	/* key not required */
-#define	R_SNAPSHOT	0x04	/* snapshot the input */
-	u_long	flags;
-	u_int	cachesize;	/* bytes to cache */
-	u_int	psize;		/* page size */
-	int	lorder;		/* byte order */
-	size_t	reclen;		/* record length (fixed-length records) */
-	u_char	bval;		/* delimiting byte (variable-length records */
-	char	*bfname;	/* btree file name */ 
-} RECNOINFO;
-
 DB	*dbopen (const char *, int, int, DBTYPE, const void *);
 DB	*__bt_open (const char *, int, int, const BTREEINFO *, int);
 #endif /* !_DB_H_ */

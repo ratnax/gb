@@ -4,6 +4,7 @@
 #include <linux/fs.h>
 #include <linux/pagemap.h>
 #include <linux/minix_fs.h>
+#include <db.h>
 
 #define INODE_VERSION(inode)	minix_sb(inode->i_sb)->s_version
 #define MINIX_V1		0x0001		/* original minix fs */
@@ -38,6 +39,7 @@ struct minix_sb_info {
 	struct buffer_head ** s_zmap;
 	struct buffer_head * s_sbh;
 	struct minix_super_block * s_ms;
+	DB *dbp;
 	unsigned short s_mount_state;
 	unsigned short s_version;
 };
