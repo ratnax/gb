@@ -91,8 +91,10 @@ storekey:		if (__ovfl_put(t, key, &pg) == RET_ERROR)
 	 * permitted) or an error is returned.
 	 */
 	if (exact) {
-		mpool_put(t->bt_mp, h, 0);
-		return (RET_SPECIAL);
+		if (__bt_dleaf(t, key, h, index) == RET_ERROR) {
+			mpool_put(t->bt_mp, h, 0);
+			return (RET_ERROR);
+		}
 	}
 
 	/*
