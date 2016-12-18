@@ -1,5 +1,5 @@
 /*
- *  linux/fs/minix/bitmap.c
+ *  linux/fs/gbfs/bitmap.c
  *
  *  Copyright (C) 1991, 1992  Linus Torvalds
  */
@@ -11,7 +11,7 @@
 
 /* bitmap.c contains the code that handles the inode and block bitmaps */
 
-#include "minix.h"
+#include "gbfs.h"
 #include <linux/buffer_head.h>
 #include <linux/bitops.h>
 #include <linux/sched.h>
@@ -38,10 +38,10 @@ static __u32 count_free(struct buffer_head *map[], unsigned blocksize, __u32 num
 	return sum;
 }
 
-void minix_free_block(struct inode *inode, unsigned long block)
+void gbfs_free_block(struct inode *inode, unsigned long block)
 {
 	struct super_block *sb = inode->i_sb;
-	struct minix_sb_info *sbi = minix_sb(sb);
+	struct gbfs_sb_info *sbi = gbfs_sb(sb);
 	struct buffer_head *bh;
 	int k = sb->s_blocksize_bits + 3;
 	unsigned long bit, zone;
@@ -54,22 +54,22 @@ void minix_free_block(struct inode *inode, unsigned long block)
 	bit = zone & ((1<<k) - 1);
 	zone >>= k;
 	if (zone >= sbi->s_zmap_blocks) {
-		printk("minix_free_block: nonexistent bitmap buffer\n");
+		printk("gbfs_free_block: nonexistent bitmap buffer\n");
 		return;
 	}
 	bh = sbi->s_zmap[zone];
 	spin_lock(&bitmap_lock);
-	if (!minix_test_and_clear_bit(bit, bh->b_data))
-		printk("minix_free_block (%s:%lu): bit already cleared\n",
+	if (!gbfs_test_and_clear_bit(bit, bh->b_data))
+		printk("gbfs_free_block (%s:%lu): bit already cleared\n",
 		       sb->s_id, block);
 	spin_unlock(&bitmap_lock);
 	mark_buffer_dirty(bh);
 	return;
 }
 
-int minix_new_block(struct inode * inode)
+int gbfs_new_block(struct inode * inode)
 {
-	struct minix_sb_info *sbi = minix_sb(inode->i_sb);
+	struct gbfs_sb_info *sbi = gbfs_sb(inode->i_sb);
 	int bits_per_zone = 8 * inode->i_sb->s_blocksize;
 	int i;
 
@@ -78,9 +78,9 @@ int minix_new_block(struct inode * inode)
 		int j;
 
 		spin_lock(&bitmap_lock);
-		j = minix_find_first_zero_bit(bh->b_data, bits_per_zone);
+		j = gbfs_find_first_zero_bit(bh->b_data, bits_per_zone);
 		if (j < bits_per_zone) {
-			minix_set_bit(j, bh->b_data);
+			gbfs_set_bit(j, bh->b_data);
 			spin_unlock(&bitmap_lock);
 			mark_buffer_dirty(bh);
 			j += i * bits_per_zone + sbi->s_firstdatazone-1;
@@ -93,21 +93,21 @@ int minix_new_block(struct inode * inode)
 	return 0;
 }
 
-unsigned long minix_count_free_blocks(struct super_block *sb)
+unsigned long gbfs_count_free_blocks(struct super_block *sb)
 {
-	struct minix_sb_info *sbi = minix_sb(sb);
+	struct gbfs_sb_info *sbi = gbfs_sb(sb);
 	u32 bits = sbi->s_nzones - sbi->s_firstdatazone + 1;
 
 	return (count_free(sbi->s_zmap, sb->s_blocksize, bits)
 		<< sbi->s_log_zone_size);
 }
 
-struct minix_inode *
-minix_V1_raw_inode(struct super_block *sb, ino_t ino, struct buffer_head **bh)
+struct gbfs_inode *
+gbfs_V1_raw_inode(struct super_block *sb, ino_t ino, struct buffer_head **bh)
 {
 	int block;
-	struct minix_sb_info *sbi = minix_sb(sb);
-	struct minix_inode *p;
+	struct gbfs_sb_info *sbi = gbfs_sb(sb);
+	struct gbfs_inode *p;
 
 	if (!ino || ino > sbi->s_ninodes) {
 		printk("Bad inode number on dev %s: %ld is out of range\n",
@@ -116,23 +116,23 @@ minix_V1_raw_inode(struct super_block *sb, ino_t ino, struct buffer_head **bh)
 	}
 	ino--;
 	block = 2 + sbi->s_imap_blocks + sbi->s_zmap_blocks +
-		 ino / MINIX_INODES_PER_BLOCK;
+		 ino / GBFS_INODES_PER_BLOCK;
 	*bh = sb_bread(sb, block);
 	if (!*bh) {
 		printk("Unable to read inode block\n");
 		return NULL;
 	}
 	p = (void *)(*bh)->b_data;
-	return p + ino % MINIX_INODES_PER_BLOCK;
+	return p + ino % GBFS_INODES_PER_BLOCK;
 }
 
-struct minix2_inode *
-minix_V2_raw_inode(struct super_block *sb, ino_t ino, struct buffer_head **bh)
+struct gbfs2_inode *
+gbfs_V2_raw_inode(struct super_block *sb, ino_t ino, struct buffer_head **bh)
 {
 	int block;
-	struct minix_sb_info *sbi = minix_sb(sb);
-	struct minix2_inode *p;
-	int minix2_inodes_per_block = sb->s_blocksize / sizeof(struct minix2_inode);
+	struct gbfs_sb_info *sbi = gbfs_sb(sb);
+	struct gbfs2_inode *p;
+	int gbfs2_inodes_per_block = sb->s_blocksize / sizeof(struct gbfs2_inode);
 
 	*bh = NULL;
 	if (!ino || ino > sbi->s_ninodes) {
@@ -142,32 +142,32 @@ minix_V2_raw_inode(struct super_block *sb, ino_t ino, struct buffer_head **bh)
 	}
 	ino--;
 	block = 2 + sbi->s_imap_blocks + sbi->s_zmap_blocks +
-		 ino / minix2_inodes_per_block;
+		 ino / gbfs2_inodes_per_block;
 	*bh = sb_bread(sb, block);
 	if (!*bh) {
 		printk("Unable to read inode block\n");
 		return NULL;
 	}
 	p = (void *)(*bh)->b_data;
-	return p + ino % minix2_inodes_per_block;
+	return p + ino % gbfs2_inodes_per_block;
 }
 
 /* Clear the link count and mode of a deleted inode on disk. */
 
-static void minix_clear_inode(struct inode *inode)
+static void gbfs_clear_inode(struct inode *inode)
 {
 	struct buffer_head *bh = NULL;
 
-	if (INODE_VERSION(inode) == MINIX_V1) {
-		struct minix_inode *raw_inode;
-		raw_inode = minix_V1_raw_inode(inode->i_sb, inode->i_ino, &bh);
+	if (INODE_VERSION(inode) == GBFS_V1) {
+		struct gbfs_inode *raw_inode;
+		raw_inode = gbfs_V1_raw_inode(inode->i_sb, inode->i_ino, &bh);
 		if (raw_inode) {
 			raw_inode->i_nlinks = 0;
 			raw_inode->i_mode = 0;
 		}
 	} else {
-		struct minix2_inode *raw_inode;
-		raw_inode = minix_V2_raw_inode(inode->i_sb, inode->i_ino, &bh);
+		struct gbfs2_inode *raw_inode;
+		raw_inode = gbfs_V2_raw_inode(inode->i_sb, inode->i_ino, &bh);
 		if (raw_inode) {
 			raw_inode->i_nlinks = 0;
 			raw_inode->i_mode = 0;
@@ -179,40 +179,40 @@ static void minix_clear_inode(struct inode *inode)
 	}
 }
 
-void minix_free_inode(struct inode * inode)
+void gbfs_free_inode(struct inode * inode)
 {
 	struct super_block *sb = inode->i_sb;
-	struct minix_sb_info *sbi = minix_sb(inode->i_sb);
+	struct gbfs_sb_info *sbi = gbfs_sb(inode->i_sb);
 	struct buffer_head *bh;
 	int k = sb->s_blocksize_bits + 3;
 	unsigned long ino, bit;
 
 	ino = inode->i_ino;
 	if (ino < 1 || ino > sbi->s_ninodes) {
-		printk("minix_free_inode: inode 0 or nonexistent inode\n");
+		printk("gbfs_free_inode: inode 0 or nonexistent inode\n");
 		return;
 	}
 	bit = ino & ((1<<k) - 1);
 	ino >>= k;
 	if (ino >= sbi->s_imap_blocks) {
-		printk("minix_free_inode: nonexistent imap in superblock\n");
+		printk("gbfs_free_inode: nonexistent imap in superblock\n");
 		return;
 	}
 
-	minix_clear_inode(inode);	/* clear on-disk copy */
+	gbfs_clear_inode(inode);	/* clear on-disk copy */
 
 	bh = sbi->s_imap[ino];
 	spin_lock(&bitmap_lock);
-	if (!minix_test_and_clear_bit(bit, bh->b_data))
-		printk("minix_free_inode: bit %lu already cleared\n", bit);
+	if (!gbfs_test_and_clear_bit(bit, bh->b_data))
+		printk("gbfs_free_inode: bit %lu already cleared\n", bit);
 	spin_unlock(&bitmap_lock);
 	mark_buffer_dirty(bh);
 }
 
-struct inode *minix_new_inode(const struct inode *dir, umode_t mode, int *error)
+struct inode *gbfs_new_inode(const struct inode *dir, umode_t mode, int *error)
 {
 	struct super_block *sb = dir->i_sb;
-	struct minix_sb_info *sbi = minix_sb(sb);
+	struct gbfs_sb_info *sbi = gbfs_sb(sb);
 	struct inode *inode = new_inode(sb);
 	struct buffer_head * bh;
 	int bits_per_zone = 8 * sb->s_blocksize;
@@ -229,7 +229,7 @@ struct inode *minix_new_inode(const struct inode *dir, umode_t mode, int *error)
 	spin_lock(&bitmap_lock);
 	for (i = 0; i < sbi->s_imap_blocks; i++) {
 		bh = sbi->s_imap[i];
-		j = minix_find_first_zero_bit(bh->b_data, bits_per_zone);
+		j = gbfs_find_first_zero_bit(bh->b_data, bits_per_zone);
 		if (j < bits_per_zone)
 			break;
 	}
@@ -238,9 +238,9 @@ struct inode *minix_new_inode(const struct inode *dir, umode_t mode, int *error)
 		iput(inode);
 		return NULL;
 	}
-	if (minix_test_and_set_bit(j, bh->b_data)) {	/* shouldn't happen */
+	if (gbfs_test_and_set_bit(j, bh->b_data)) {	/* shouldn't happen */
 		spin_unlock(&bitmap_lock);
-		printk("minix_new_inode: bit already set\n");
+		printk("gbfs_new_inode: bit already set\n");
 		iput(inode);
 		return NULL;
 	}
@@ -255,7 +255,7 @@ struct inode *minix_new_inode(const struct inode *dir, umode_t mode, int *error)
 	inode->i_ino = j;
 	inode->i_mtime = inode->i_atime = inode->i_ctime = current_time(inode);
 	inode->i_blocks = 0;
-	memset(&minix_i(inode)->u, 0, sizeof(minix_i(inode)->u));
+	memset(&gbfs_i(inode)->u, 0, sizeof(gbfs_i(inode)->u));
 	insert_inode_hash(inode);
 	mark_inode_dirty(inode);
 
@@ -263,9 +263,9 @@ struct inode *minix_new_inode(const struct inode *dir, umode_t mode, int *error)
 	return inode;
 }
 
-unsigned long minix_count_free_inodes(struct super_block *sb)
+unsigned long gbfs_count_free_inodes(struct super_block *sb)
 {
-	struct minix_sb_info *sbi = minix_sb(sb);
+	struct gbfs_sb_info *sbi = gbfs_sb(sb);
 	u32 bits = sbi->s_ninodes + 1;
 
 	return count_free(sbi->s_imap, sb->s_blocksize, bits);

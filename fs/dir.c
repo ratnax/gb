@@ -1,27 +1,27 @@
 /*
- *  linux/fs/minix/dir.c
+ *  linux/fs/gbfs/dir.c
  *
  *  Copyright (C) 1991, 1992 Linus Torvalds
  *
- *  minix directory handling functions
+ *  gbfs directory handling functions
  *
  *  Updated to filesystem version 3 by Daniel Aragones
  */
 
-#include "minix.h"
+#include "gbfs.h"
 #include <linux/buffer_head.h>
 #include <linux/highmem.h>
 #include <linux/swap.h>
 
-typedef struct minix_dir_entry minix_dirent;
-typedef struct minix3_dir_entry minix3_dirent;
+typedef struct gbfs_dir_entry gbfs_dirent;
+typedef struct gbfs3_dir_entry gbfs3_dirent;
 
-static int minix_readdir(struct file *, struct dir_context *);
+static int gbfs_readdir(struct file *, struct dir_context *);
 
-const struct file_operations minix_dir_operations = {
+const struct file_operations gbfs_dir_operations = {
 	.llseek		= generic_file_llseek,
 	.read		= generic_read_dir,
-	.iterate_shared	= minix_readdir,
+	.iterate_shared	= gbfs_readdir,
 	.fsync		= generic_file_fsync,
 };
 
@@ -36,7 +36,7 @@ static inline void dir_put_page(struct page *page)
  * byte in that page, plus one.
  */
 static unsigned
-minix_last_byte(struct inode *inode, unsigned long page_nr)
+gbfs_last_byte(struct inode *inode, unsigned long page_nr)
 {
 	unsigned last_byte = PAGE_SIZE;
 
@@ -72,16 +72,16 @@ static struct page * dir_get_page(struct inode *dir, unsigned long n)
 	return page;
 }
 
-static inline void *minix_next_entry(void *de, struct minix_sb_info *sbi)
+static inline void *gbfs_next_entry(void *de, struct gbfs_sb_info *sbi)
 {
 	return (void*)((char*)de + sbi->s_dirsize);
 }
 
-static int minix_readdir(struct file *file, struct dir_context *ctx)
+static int gbfs_readdir(struct file *file, struct dir_context *ctx)
 {
 	struct inode *inode = file_inode(file);
 	struct super_block *sb = inode->i_sb;
-	struct minix_sb_info *sbi = minix_sb(sb);
+	struct gbfs_sb_info *sbi = gbfs_sb(sb);
 	unsigned chunk_size = sbi->s_dirsize;
 	unsigned long npages = dir_pages(inode);
 	unsigned long pos = ctx->pos;
@@ -103,16 +103,16 @@ static int minix_readdir(struct file *file, struct dir_context *ctx)
 			continue;
 		kaddr = (char *)page_address(page);
 		p = kaddr+offset;
-		limit = kaddr + minix_last_byte(inode, n) - chunk_size;
-		for ( ; p <= limit; p = minix_next_entry(p, sbi)) {
+		limit = kaddr + gbfs_last_byte(inode, n) - chunk_size;
+		for ( ; p <= limit; p = gbfs_next_entry(p, sbi)) {
 			const char *name;
 			__u32 inumber;
-			if (sbi->s_version == MINIX_V3) {
-				minix3_dirent *de3 = (minix3_dirent *)p;
+			if (sbi->s_version == GBFS_V3) {
+				gbfs3_dirent *de3 = (gbfs3_dirent *)p;
 				name = de3->name;
 				inumber = de3->inode;
 	 		} else {
-				minix_dirent *de = (minix_dirent *)p;
+				gbfs_dirent *de = (gbfs_dirent *)p;
 				name = de->name;
 				inumber = de->inode;
 			}
@@ -140,20 +140,20 @@ static inline int namecompare(int len, int maxlen,
 }
 
 /*
- *	minix_find_entry()
+ *	gbfs_find_entry()
  *
  * finds an entry in the specified directory with the wanted name. It
  * returns the cache buffer in which the entry was found, and the entry
  * itself (as a parameter - res_dir). It does NOT read the inode of the
  * entry - you'll have to do that yourself if you want to.
  */
-minix_dirent *minix_find_entry(struct dentry *dentry, struct page **res_page)
+gbfs_dirent *gbfs_find_entry(struct dentry *dentry, struct page **res_page)
 {
 	const char * name = dentry->d_name.name;
 	int namelen = dentry->d_name.len;
 	struct inode * dir = d_inode(dentry->d_parent);
 	struct super_block * sb = dir->i_sb;
-	struct minix_sb_info * sbi = minix_sb(sb);
+	struct gbfs_sb_info * sbi = gbfs_sb(sb);
 	unsigned long n;
 	unsigned long npages = dir_pages(dir);
 	struct page *page = NULL;
@@ -171,14 +171,14 @@ minix_dirent *minix_find_entry(struct dentry *dentry, struct page **res_page)
 			continue;
 
 		kaddr = (char*)page_address(page);
-		limit = kaddr + minix_last_byte(dir, n) - sbi->s_dirsize;
-		for (p = kaddr; p <= limit; p = minix_next_entry(p, sbi)) {
-			if (sbi->s_version == MINIX_V3) {
-				minix3_dirent *de3 = (minix3_dirent *)p;
+		limit = kaddr + gbfs_last_byte(dir, n) - sbi->s_dirsize;
+		for (p = kaddr; p <= limit; p = gbfs_next_entry(p, sbi)) {
+			if (sbi->s_version == GBFS_V3) {
+				gbfs3_dirent *de3 = (gbfs3_dirent *)p;
 				namx = de3->name;
 				inumber = de3->inode;
  			} else {
-				minix_dirent *de = (minix_dirent *)p;
+				gbfs_dirent *de = (gbfs_dirent *)p;
 				namx = de->name;
 				inumber = de->inode;
 			}
@@ -193,22 +193,22 @@ minix_dirent *minix_find_entry(struct dentry *dentry, struct page **res_page)
 
 found:
 	*res_page = page;
-	return (minix_dirent *)p;
+	return (gbfs_dirent *)p;
 }
 
-int minix_add_link(struct dentry *dentry, struct inode *inode)
+int gbfs_add_link(struct dentry *dentry, struct inode *inode)
 {
 	struct inode *dir = d_inode(dentry->d_parent);
 	const char * name = dentry->d_name.name;
 	int namelen = dentry->d_name.len;
 	struct super_block * sb = dir->i_sb;
-	struct minix_sb_info * sbi = minix_sb(sb);
+	struct gbfs_sb_info * sbi = gbfs_sb(sb);
 	struct page *page = NULL;
 	unsigned long npages = dir_pages(dir);
 	unsigned long n;
 	char *kaddr, *p;
-	minix_dirent *de;
-	minix3_dirent *de3;
+	gbfs_dirent *de;
+	gbfs3_dirent *de3;
 	loff_t pos;
 	int err;
 	char *namx = NULL;
@@ -228,12 +228,12 @@ int minix_add_link(struct dentry *dentry, struct inode *inode)
 			goto out;
 		lock_page(page);
 		kaddr = (char*)page_address(page);
-		dir_end = kaddr + minix_last_byte(dir, n);
+		dir_end = kaddr + gbfs_last_byte(dir, n);
 		limit = kaddr + PAGE_SIZE - sbi->s_dirsize;
-		for (p = kaddr; p <= limit; p = minix_next_entry(p, sbi)) {
-			de = (minix_dirent *)p;
-			de3 = (minix3_dirent *)p;
-			if (sbi->s_version == MINIX_V3) {
+		for (p = kaddr; p <= limit; p = gbfs_next_entry(p, sbi)) {
+			de = (gbfs_dirent *)p;
+			de3 = (gbfs3_dirent *)p;
+			if (sbi->s_version == GBFS_V3) {
 				namx = de3->name;
 				inumber = de3->inode;
 		 	} else {
@@ -242,7 +242,7 @@ int minix_add_link(struct dentry *dentry, struct inode *inode)
 			}
 			if (p == dir_end) {
 				/* We hit i_size */
-				if (sbi->s_version == MINIX_V3)
+				if (sbi->s_version == GBFS_V3)
 					de3->inode = 0;
 		 		else
 					de->inode = 0;
@@ -262,11 +262,11 @@ int minix_add_link(struct dentry *dentry, struct inode *inode)
 
 got_it:
 	pos = page_offset(page) + p - (char *)page_address(page);
-	err = minix_prepare_chunk(page, pos, sbi->s_dirsize);
+	err = gbfs_prepare_chunk(page, pos, sbi->s_dirsize);
 	if (err)
 		goto out_unlock;
 	memcpy (namx, name, namelen);
-	if (sbi->s_version == MINIX_V3) {
+	if (sbi->s_version == GBFS_V3) {
 		memset (namx + namelen, 0, sbi->s_dirsize - namelen - 4);
 		de3->inode = inode->i_ino;
 	} else {
@@ -285,20 +285,20 @@ out_unlock:
 	goto out_put;
 }
 
-int minix_delete_entry(struct minix_dir_entry *de, struct page *page)
+int gbfs_delete_entry(struct gbfs_dir_entry *de, struct page *page)
 {
 	struct inode *inode = page->mapping->host;
 	char *kaddr = page_address(page);
 	loff_t pos = page_offset(page) + (char*)de - kaddr;
-	struct minix_sb_info *sbi = minix_sb(inode->i_sb);
+	struct gbfs_sb_info *sbi = gbfs_sb(inode->i_sb);
 	unsigned len = sbi->s_dirsize;
 	int err;
 
 	lock_page(page);
-	err = minix_prepare_chunk(page, pos, len);
+	err = gbfs_prepare_chunk(page, pos, len);
 	if (err == 0) {
-		if (sbi->s_version == MINIX_V3)
-			((minix3_dirent *) de)->inode = 0;
+		if (sbi->s_version == GBFS_V3)
+			((gbfs3_dirent *) de)->inode = 0;
 		else
 			de->inode = 0;
 		err = dir_commit_chunk(page, pos, len);
@@ -311,16 +311,16 @@ int minix_delete_entry(struct minix_dir_entry *de, struct page *page)
 	return err;
 }
 
-int minix_make_empty(struct inode *inode, struct inode *dir)
+int gbfs_make_empty(struct inode *inode, struct inode *dir)
 {
 	struct page *page = grab_cache_page(inode->i_mapping, 0);
-	struct minix_sb_info *sbi = minix_sb(inode->i_sb);
+	struct gbfs_sb_info *sbi = gbfs_sb(inode->i_sb);
 	char *kaddr;
 	int err;
 
 	if (!page)
 		return -ENOMEM;
-	err = minix_prepare_chunk(page, 0, 2 * sbi->s_dirsize);
+	err = gbfs_prepare_chunk(page, 0, 2 * sbi->s_dirsize);
 	if (err) {
 		unlock_page(page);
 		goto fail;
@@ -329,20 +329,20 @@ int minix_make_empty(struct inode *inode, struct inode *dir)
 	kaddr = kmap_atomic(page);
 	memset(kaddr, 0, PAGE_SIZE);
 
-	if (sbi->s_version == MINIX_V3) {
-		minix3_dirent *de3 = (minix3_dirent *)kaddr;
+	if (sbi->s_version == GBFS_V3) {
+		gbfs3_dirent *de3 = (gbfs3_dirent *)kaddr;
 
 		de3->inode = inode->i_ino;
 		strcpy(de3->name, ".");
-		de3 = minix_next_entry(de3, sbi);
+		de3 = gbfs_next_entry(de3, sbi);
 		de3->inode = dir->i_ino;
 		strcpy(de3->name, "..");
 	} else {
-		minix_dirent *de = (minix_dirent *)kaddr;
+		gbfs_dirent *de = (gbfs_dirent *)kaddr;
 
 		de->inode = inode->i_ino;
 		strcpy(de->name, ".");
-		de = minix_next_entry(de, sbi);
+		de = gbfs_next_entry(de, sbi);
 		de->inode = dir->i_ino;
 		strcpy(de->name, "..");
 	}
@@ -357,11 +357,11 @@ fail:
 /*
  * routine to check that the specified directory is empty (for rmdir)
  */
-int minix_empty_dir(struct inode * inode)
+int gbfs_empty_dir(struct inode * inode)
 {
 	struct page *page = NULL;
 	unsigned long i, npages = dir_pages(inode);
-	struct minix_sb_info *sbi = minix_sb(inode->i_sb);
+	struct gbfs_sb_info *sbi = gbfs_sb(inode->i_sb);
 	char *name;
 	__u32 inumber;
 
@@ -373,14 +373,14 @@ int minix_empty_dir(struct inode * inode)
 			continue;
 
 		kaddr = (char *)page_address(page);
-		limit = kaddr + minix_last_byte(inode, i) - sbi->s_dirsize;
-		for (p = kaddr; p <= limit; p = minix_next_entry(p, sbi)) {
-			if (sbi->s_version == MINIX_V3) {
-				minix3_dirent *de3 = (minix3_dirent *)p;
+		limit = kaddr + gbfs_last_byte(inode, i) - sbi->s_dirsize;
+		for (p = kaddr; p <= limit; p = gbfs_next_entry(p, sbi)) {
+			if (sbi->s_version == GBFS_V3) {
+				gbfs3_dirent *de3 = (gbfs3_dirent *)p;
 				name = de3->name;
 				inumber = de3->inode;
 			} else {
-				minix_dirent *de = (minix_dirent *)p;
+				gbfs_dirent *de = (gbfs_dirent *)p;
 				name = de->name;
 				inumber = de->inode;
 			}
@@ -408,21 +408,21 @@ not_empty:
 }
 
 /* Releases the page */
-void minix_set_link(struct minix_dir_entry *de, struct page *page,
+void gbfs_set_link(struct gbfs_dir_entry *de, struct page *page,
 	struct inode *inode)
 {
 	struct inode *dir = page->mapping->host;
-	struct minix_sb_info *sbi = minix_sb(dir->i_sb);
+	struct gbfs_sb_info *sbi = gbfs_sb(dir->i_sb);
 	loff_t pos = page_offset(page) +
 			(char *)de-(char*)page_address(page);
 	int err;
 
 	lock_page(page);
 
-	err = minix_prepare_chunk(page, pos, sbi->s_dirsize);
+	err = gbfs_prepare_chunk(page, pos, sbi->s_dirsize);
 	if (err == 0) {
-		if (sbi->s_version == MINIX_V3)
-			((minix3_dirent *) de)->inode = inode->i_ino;
+		if (sbi->s_version == GBFS_V3)
+			((gbfs3_dirent *) de)->inode = inode->i_ino;
 		else
 			de->inode = inode->i_ino;
 		err = dir_commit_chunk(page, pos, sbi->s_dirsize);
@@ -434,32 +434,32 @@ void minix_set_link(struct minix_dir_entry *de, struct page *page,
 	mark_inode_dirty(dir);
 }
 
-struct minix_dir_entry * minix_dotdot (struct inode *dir, struct page **p)
+struct gbfs_dir_entry * gbfs_dotdot (struct inode *dir, struct page **p)
 {
 	struct page *page = dir_get_page(dir, 0);
-	struct minix_sb_info *sbi = minix_sb(dir->i_sb);
-	struct minix_dir_entry *de = NULL;
+	struct gbfs_sb_info *sbi = gbfs_sb(dir->i_sb);
+	struct gbfs_dir_entry *de = NULL;
 
 	if (!IS_ERR(page)) {
-		de = minix_next_entry(page_address(page), sbi);
+		de = gbfs_next_entry(page_address(page), sbi);
 		*p = page;
 	}
 	return de;
 }
 
-ino_t minix_inode_by_name(struct dentry *dentry)
+ino_t gbfs_inode_by_name(struct dentry *dentry)
 {
 	struct page *page;
-	struct minix_dir_entry *de = minix_find_entry(dentry, &page);
+	struct gbfs_dir_entry *de = gbfs_find_entry(dentry, &page);
 	ino_t res = 0;
 
 	if (de) {
 		struct address_space *mapping = page->mapping;
 		struct inode *inode = mapping->host;
-		struct minix_sb_info *sbi = minix_sb(inode->i_sb);
+		struct gbfs_sb_info *sbi = gbfs_sb(inode->i_sb);
 
-		if (sbi->s_version == MINIX_V3)
-			res = ((minix3_dirent *) de)->inode;
+		if (sbi->s_version == GBFS_V3)
+			res = ((gbfs3_dirent *) de)->inode;
 		else
 			res = de->inode;
 		dir_put_page(page);

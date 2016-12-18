@@ -1,18 +1,18 @@
 /*
- *  linux/fs/minix/file.c
+ *  linux/fs/gbfs/file.c
  *
  *  Copyright (C) 1991, 1992 Linus Torvalds
  *
- *  minix regular file handling primitives
+ *  gbfs regular file handling primitives
  */
 
-#include "minix.h"
+#include "gbfs.h"
 
 /*
  * We have mostly NULLs here: the current defaults are OK for
- * the minix filesystem.
+ * the gbfs filesystem.
  */
-const struct file_operations minix_file_operations = {
+const struct file_operations gbfs_file_operations = {
 	.llseek		= generic_file_llseek,
 	.read_iter	= generic_file_read_iter,
 	.write_iter	= generic_file_write_iter,
@@ -21,7 +21,7 @@ const struct file_operations minix_file_operations = {
 	.splice_read	= generic_file_splice_read,
 };
 
-static int minix_setattr(struct dentry *dentry, struct iattr *attr)
+static int gbfs_setattr(struct dentry *dentry, struct iattr *attr)
 {
 	struct inode *inode = d_inode(dentry);
 	int error;
@@ -37,7 +37,7 @@ static int minix_setattr(struct dentry *dentry, struct iattr *attr)
 			return error;
 
 		truncate_setsize(inode, attr->ia_size);
-		minix_truncate(inode);
+		gbfs_truncate(inode);
 	}
 
 	setattr_copy(inode, attr);
@@ -45,7 +45,7 @@ static int minix_setattr(struct dentry *dentry, struct iattr *attr)
 	return 0;
 }
 
-const struct inode_operations minix_file_inode_operations = {
-	.setattr	= minix_setattr,
-	.getattr	= minix_getattr,
+const struct inode_operations gbfs_file_inode_operations = {
+	.setattr	= gbfs_setattr,
+	.getattr	= gbfs_getattr,
 };

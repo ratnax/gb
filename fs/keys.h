@@ -1,5 +1,5 @@
-#ifndef _MINIX_KEYS_H_
-#define _MINIX_KEYS_H_
+#ifndef _GBFS_KEYS_H_
+#define _GBFS_KEYS_H_
 
 typedef struct gbfs_data_key_t {
 	ino_t ino;
