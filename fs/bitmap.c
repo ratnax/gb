@@ -103,36 +103,12 @@ unsigned long gbfs_count_free_blocks(struct super_block *sb)
 }
 
 struct gbfs_inode *
-gbfs_V1_raw_inode(struct super_block *sb, ino_t ino, struct buffer_head **bh)
+gbfs_raw_inode(struct super_block *sb, ino_t ino, struct buffer_head **bh)
 {
 	int block;
 	struct gbfs_sb_info *sbi = gbfs_sb(sb);
 	struct gbfs_inode *p;
-
-	if (!ino || ino > sbi->s_ninodes) {
-		printk("Bad inode number on dev %s: %ld is out of range\n",
-		       sb->s_id, (long)ino);
-		return NULL;
-	}
-	ino--;
-	block = 2 + sbi->s_imap_blocks + sbi->s_zmap_blocks +
-		 ino / GBFS_INODES_PER_BLOCK;
-	*bh = sb_bread(sb, block);
-	if (!*bh) {
-		printk("Unable to read inode block\n");
-		return NULL;
-	}
-	p = (void *)(*bh)->b_data;
-	return p + ino % GBFS_INODES_PER_BLOCK;
-}
-
-struct gbfs2_inode *
-gbfs_V2_raw_inode(struct super_block *sb, ino_t ino, struct buffer_head **bh)
-{
-	int block;
-	struct gbfs_sb_info *sbi = gbfs_sb(sb);
-	struct gbfs2_inode *p;
-	int gbfs2_inodes_per_block = sb->s_blocksize / sizeof(struct gbfs2_inode);
+	int gbfs_inodes_per_block = sb->s_blocksize / sizeof(struct gbfs_inode);
 
 	*bh = NULL;
 	if (!ino || ino > sbi->s_ninodes) {
@@ -142,14 +118,14 @@ gbfs_V2_raw_inode(struct super_block *sb, ino_t ino, struct buffer_head **bh)
 	}
 	ino--;
 	block = 2 + sbi->s_imap_blocks + sbi->s_zmap_blocks +
-		 ino / gbfs2_inodes_per_block;
+		 ino / gbfs_inodes_per_block;
 	*bh = sb_bread(sb, block);
 	if (!*bh) {
 		printk("Unable to read inode block\n");
 		return NULL;
 	}
 	p = (void *)(*bh)->b_data;
-	return p + ino % gbfs2_inodes_per_block;
+	return p + ino % gbfs_inodes_per_block;
 }
 
 /* Clear the link count and mode of a deleted inode on disk. */
@@ -158,21 +134,13 @@ static void gbfs_clear_inode(struct inode *inode)
 {
 	struct buffer_head *bh = NULL;
 
-	if (INODE_VERSION(inode) == GBFS_V1) {
-		struct gbfs_inode *raw_inode;
-		raw_inode = gbfs_V1_raw_inode(inode->i_sb, inode->i_ino, &bh);
-		if (raw_inode) {
-			raw_inode->i_nlinks = 0;
-			raw_inode->i_mode = 0;
-		}
-	} else {
-		struct gbfs2_inode *raw_inode;
-		raw_inode = gbfs_V2_raw_inode(inode->i_sb, inode->i_ino, &bh);
-		if (raw_inode) {
-			raw_inode->i_nlinks = 0;
-			raw_inode->i_mode = 0;
-		}
+	struct gbfs_inode *raw_inode;
+	raw_inode = gbfs_raw_inode(inode->i_sb, inode->i_ino, &bh);
+	if (raw_inode) {
+		raw_inode->i_nlinks = 0;
+		raw_inode->i_mode = 0;
 	}
+
 	if (bh) {
 		mark_buffer_dirty(bh);
 		brelse (bh);

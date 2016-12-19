@@ -7,11 +7,6 @@
 
 #include "gbfs_uapi.h"
 
-#define INODE_VERSION(inode)	gbfs_sb(inode->i_sb)->s_version
-#define GBFS_V1		0x0001		/* original gbfs fs */
-#define GBFS_V2		0x0002		/* gbfs V2 fs */
-#define GBFS_V3		0x0003		/* gbfs V3 fs */
-
 /*
  * gbfs fs inode data in memory
  */
@@ -42,12 +37,10 @@ struct gbfs_sb_info {
 	struct gbfs_super_block * s_ms;
 	DB *dbp;
 	unsigned short s_mount_state;
-	unsigned short s_version;
 };
 
 extern struct inode *gbfs_iget(struct super_block *, unsigned long);
-extern struct gbfs_inode * gbfs_V1_raw_inode(struct super_block *, ino_t, struct buffer_head **);
-extern struct gbfs2_inode * gbfs_V2_raw_inode(struct super_block *, ino_t, struct buffer_head **);
+extern struct gbfs_inode * gbfs_raw_inode(struct super_block *, ino_t, struct buffer_head **);
 extern struct inode * gbfs_new_inode(const struct inode *, umode_t, int *);
 extern void gbfs_free_inode(struct inode * inode);
 extern unsigned long gbfs_count_free_inodes(struct super_block *sb);
@@ -57,14 +50,11 @@ extern unsigned long gbfs_count_free_blocks(struct super_block *sb);
 extern int gbfs_getattr(struct vfsmount *, struct dentry *, struct kstat *);
 extern int gbfs_prepare_chunk(struct page *page, loff_t pos, unsigned len);
 
-extern void V1_gbfs_truncate(struct inode *);
-extern void V2_gbfs_truncate(struct inode *);
+extern void __gbfs_truncate(struct inode *);
 extern void gbfs_truncate(struct inode *);
 extern void gbfs_set_inode(struct inode *, dev_t);
-extern int V1_gbfs_get_block(struct inode *, long, struct buffer_head *, int);
-extern int V2_gbfs_get_block(struct inode *, long, struct buffer_head *, int);
-extern unsigned V1_gbfs_blocks(loff_t, struct super_block *);
-extern unsigned V2_gbfs_blocks(loff_t, struct super_block *);
+extern int __gbfs_get_block(struct inode *, long, struct buffer_head *, int);
+extern unsigned gbfs_blocks(loff_t, struct super_block *);
 
 extern struct gbfs_dir_entry *gbfs_find_entry(struct dentry*, struct page**);
 extern int gbfs_add_link(struct dentry*, struct inode*);

@@ -14,7 +14,6 @@
 #include <linux/swap.h>
 
 typedef struct gbfs_dir_entry gbfs_dirent;
-typedef struct gbfs3_dir_entry gbfs3_dirent;
 
 static int gbfs_readdir(struct file *, struct dir_context *);
 
@@ -107,15 +106,9 @@ static int gbfs_readdir(struct file *file, struct dir_context *ctx)
 		for ( ; p <= limit; p = gbfs_next_entry(p, sbi)) {
 			const char *name;
 			__u32 inumber;
-			if (sbi->s_version == GBFS_V3) {
-				gbfs3_dirent *de3 = (gbfs3_dirent *)p;
-				name = de3->name;
-				inumber = de3->inode;
-	 		} else {
-				gbfs_dirent *de = (gbfs_dirent *)p;
-				name = de->name;
-				inumber = de->inode;
-			}
+			gbfs_dirent *de3 = (gbfs_dirent *)p;
+			name = de3->name;
+			inumber = de3->inode;
 			if (inumber) {
 				unsigned l = strnlen(name, sbi->s_namelen);
 				if (!dir_emit(ctx, name, l,
@@ -173,16 +166,10 @@ gbfs_dirent *gbfs_find_entry(struct dentry *dentry, struct page **res_page)
 		kaddr = (char*)page_address(page);
 		limit = kaddr + gbfs_last_byte(dir, n) - sbi->s_dirsize;
 		for (p = kaddr; p <= limit; p = gbfs_next_entry(p, sbi)) {
-			if (sbi->s_version == GBFS_V3) {
-				gbfs3_dirent *de3 = (gbfs3_dirent *)p;
-				namx = de3->name;
-				inumber = de3->inode;
- 			} else {
-				gbfs_dirent *de = (gbfs_dirent *)p;
-				namx = de->name;
-				inumber = de->inode;
-			}
-			if (!inumber)
+			gbfs_dirent *de3 = (gbfs_dirent *)p;
+			namx = de3->name;
+			inumber = de3->inode;
+ 			if (!inumber)
 				continue;
 			if (namecompare(namelen, sbi->s_namelen, name, namx))
 				goto found;
@@ -208,7 +195,7 @@ int gbfs_add_link(struct dentry *dentry, struct inode *inode)
 	unsigned long n;
 	char *kaddr, *p;
 	gbfs_dirent *de;
-	gbfs3_dirent *de3;
+	gbfs_dirent *de3;
 	loff_t pos;
 	int err;
 	char *namx = NULL;
@@ -232,20 +219,12 @@ int gbfs_add_link(struct dentry *dentry, struct inode *inode)
 		limit = kaddr + PAGE_SIZE - sbi->s_dirsize;
 		for (p = kaddr; p <= limit; p = gbfs_next_entry(p, sbi)) {
 			de = (gbfs_dirent *)p;
-			de3 = (gbfs3_dirent *)p;
-			if (sbi->s_version == GBFS_V3) {
-				namx = de3->name;
-				inumber = de3->inode;
-		 	} else {
-  				namx = de->name;
-				inumber = de->inode;
-			}
+			de3 = (gbfs_dirent *)p;
+			namx = de3->name;
+			inumber = de3->inode;
 			if (p == dir_end) {
 				/* We hit i_size */
-				if (sbi->s_version == GBFS_V3)
-					de3->inode = 0;
-		 		else
-					de->inode = 0;
+				de->inode = 0;
 				goto got_it;
 			}
 			if (!inumber)
@@ -266,13 +245,8 @@ got_it:
 	if (err)
 		goto out_unlock;
 	memcpy (namx, name, namelen);
-	if (sbi->s_version == GBFS_V3) {
-		memset (namx + namelen, 0, sbi->s_dirsize - namelen - 4);
-		de3->inode = inode->i_ino;
-	} else {
-		memset (namx + namelen, 0, sbi->s_dirsize - namelen - 2);
-		de->inode = inode->i_ino;
-	}
+	memset (namx + namelen, 0, sbi->s_dirsize - namelen - 4);
+	de3->inode = inode->i_ino;
 	err = dir_commit_chunk(page, pos, sbi->s_dirsize);
 	dir->i_mtime = dir->i_ctime = current_time(dir);
 	mark_inode_dirty(dir);
@@ -297,10 +271,7 @@ int gbfs_delete_entry(struct gbfs_dir_entry *de, struct page *page)
 	lock_page(page);
 	err = gbfs_prepare_chunk(page, pos, len);
 	if (err == 0) {
-		if (sbi->s_version == GBFS_V3)
-			((gbfs3_dirent *) de)->inode = 0;
-		else
-			de->inode = 0;
+		((gbfs_dirent *) de)->inode = 0;
 		err = dir_commit_chunk(page, pos, len);
 	} else {
 		unlock_page(page);
@@ -315,6 +286,7 @@ int gbfs_make_empty(struct inode *inode, struct inode *dir)
 {
 	struct page *page = grab_cache_page(inode->i_mapping, 0);
 	struct gbfs_sb_info *sbi = gbfs_sb(inode->i_sb);
+	gbfs_dirent *de3;
 	char *kaddr;
 	int err;
 
@@ -329,23 +301,13 @@ int gbfs_make_empty(struct inode *inode, struct inode *dir)
 	kaddr = kmap_atomic(page);
 	memset(kaddr, 0, PAGE_SIZE);
 
-	if (sbi->s_version == GBFS_V3) {
-		gbfs3_dirent *de3 = (gbfs3_dirent *)kaddr;
+	de3 = (gbfs_dirent *)kaddr;
 
-		de3->inode = inode->i_ino;
-		strcpy(de3->name, ".");
-		de3 = gbfs_next_entry(de3, sbi);
-		de3->inode = dir->i_ino;
-		strcpy(de3->name, "..");
-	} else {
-		gbfs_dirent *de = (gbfs_dirent *)kaddr;
-
-		de->inode = inode->i_ino;
-		strcpy(de->name, ".");
-		de = gbfs_next_entry(de, sbi);
-		de->inode = dir->i_ino;
-		strcpy(de->name, "..");
-	}
+	de3->inode = inode->i_ino;
+	strcpy(de3->name, ".");
+	de3 = gbfs_next_entry(de3, sbi);
+	de3->inode = dir->i_ino;
+	strcpy(de3->name, "..");
 	kunmap_atomic(kaddr);
 
 	err = dir_commit_chunk(page, 0, 2 * sbi->s_dirsize);
@@ -375,15 +337,9 @@ int gbfs_empty_dir(struct inode * inode)
 		kaddr = (char *)page_address(page);
 		limit = kaddr + gbfs_last_byte(inode, i) - sbi->s_dirsize;
 		for (p = kaddr; p <= limit; p = gbfs_next_entry(p, sbi)) {
-			if (sbi->s_version == GBFS_V3) {
-				gbfs3_dirent *de3 = (gbfs3_dirent *)p;
-				name = de3->name;
-				inumber = de3->inode;
-			} else {
-				gbfs_dirent *de = (gbfs_dirent *)p;
-				name = de->name;
-				inumber = de->inode;
-			}
+			gbfs_dirent *de3 = (gbfs_dirent *)p;
+			name = de3->name;
+			inumber = de3->inode;
 
 			if (inumber != 0) {
 				/* check for . and .. */
@@ -421,10 +377,7 @@ void gbfs_set_link(struct gbfs_dir_entry *de, struct page *page,
 
 	err = gbfs_prepare_chunk(page, pos, sbi->s_dirsize);
 	if (err == 0) {
-		if (sbi->s_version == GBFS_V3)
-			((gbfs3_dirent *) de)->inode = inode->i_ino;
-		else
-			de->inode = inode->i_ino;
+		((gbfs_dirent *) de)->inode = inode->i_ino;
 		err = dir_commit_chunk(page, pos, sbi->s_dirsize);
 	} else {
 		unlock_page(page);
@@ -454,14 +407,7 @@ ino_t gbfs_inode_by_name(struct dentry *dentry)
 	ino_t res = 0;
 
 	if (de) {
-		struct address_space *mapping = page->mapping;
-		struct inode *inode = mapping->host;
-		struct gbfs_sb_info *sbi = gbfs_sb(inode->i_sb);
-
-		if (sbi->s_version == GBFS_V3)
-			res = ((gbfs3_dirent *) de)->inode;
-		else
-			res = de->inode;
+		res = ((gbfs_dirent *) de)->inode;
 		dir_put_page(page);
 	}
 	return res;

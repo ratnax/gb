@@ -5,8 +5,7 @@
 obj-m := gbfs.o
 
 gbfs-y :=	fs/bitmap.o \
-			fs/itree_v1.o \
-			fs/itree_v2.o \
+			fs/itree.o \
 			fs/namei.o \
 			fs/inode.o \
 			fs/file.o \

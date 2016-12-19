@@ -58,18 +58,18 @@ static int block_to_path(struct inode * inode, long block, int offsets[DEPTH])
 
 #include "itree_common.c"
 
-int V2_gbfs_get_block(struct inode * inode, long block,
+int __gbfs_get_block(struct inode * inode, long block,
 			struct buffer_head *bh_result, int create)
 {
 	return get_block(inode, block, bh_result, create);
 }
 
-void V2_gbfs_truncate(struct inode * inode)
+void __gbfs_truncate(struct inode * inode)
 {
 	truncate(inode);
 }
 
-unsigned V2_gbfs_blocks(loff_t size, struct super_block *sb)
+unsigned gbfs_blocks(loff_t size, struct super_block *sb)
 {
 	return nblocks(size, sb);
 }

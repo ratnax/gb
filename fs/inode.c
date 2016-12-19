@@ -54,8 +54,6 @@ static void gbfs_put_super(struct super_block *sb)
 		printk("gbfs: btree close status (%d).\n", ret);
 	}
 	if (!(sb->s_flags & MS_RDONLY)) {
-		if (sbi->s_version != GBFS_V3)	 /* s_state is now out from V3 sb */
-			sbi->s_ms->s_state = sbi->s_mount_state;
 		mark_buffer_dirty(sbi->s_sbh);
 	}
 	for (i = 0; i < sbi->s_imap_blocks; i++)
@@ -139,21 +137,13 @@ static int gbfs_remount (struct super_block * sb, int * flags, char * data)
 	if ((*flags & MS_RDONLY) == (sb->s_flags & MS_RDONLY))
 		return 0;
 	if (*flags & MS_RDONLY) {
-		if (ms->s_state & GBFS_VALID_FS ||
-		    !(sbi->s_mount_state & GBFS_VALID_FS))
+		if (!(sbi->s_mount_state & GBFS_VALID_FS))
 			return 0;
 		/* Mounting a rw partition read-only. */
-		if (sbi->s_version != GBFS_V3)
-			ms->s_state = sbi->s_mount_state;
 		mark_buffer_dirty(sbi->s_sbh);
 	} else {
 	  	/* Mount a partition which is read-only, read-write. */
-		if (sbi->s_version != GBFS_V3) {
-			sbi->s_mount_state = ms->s_state;
-			ms->s_state &= ~GBFS_VALID_FS;
-		} else {
-			sbi->s_mount_state = GBFS_VALID_FS;
-		}
+		sbi->s_mount_state = GBFS_VALID_FS;
 		mark_buffer_dirty(sbi->s_sbh);
 
 		if (!(sbi->s_mount_state & GBFS_VALID_FS))
@@ -171,7 +161,6 @@ static int gbfs_fill_super(struct super_block *s, void *data, int silent)
 	struct buffer_head *bh;
 	struct buffer_head **map;
 	struct gbfs_super_block *ms;
-	struct gbfs3_super_block *m3s = NULL;
 	unsigned long i, block;
 	struct inode *root_inode;
 	struct gbfs_sb_info *sbi;
@@ -182,9 +171,6 @@ static int gbfs_fill_super(struct super_block *s, void *data, int silent)
 		return -ENOMEM;
 	s->s_fs_info = sbi;
 
-	BUILD_BUG_ON(32 != sizeof (struct gbfs_inode));
-	BUILD_BUG_ON(64 != sizeof(struct gbfs2_inode));
-
 	if (!sb_set_blocksize(s, BLOCK_SIZE))
 		goto out_bad_hblock;
 
@@ -194,53 +180,20 @@ static int gbfs_fill_super(struct super_block *s, void *data, int silent)
 	ms = (struct gbfs_super_block *) bh->b_data;
 	sbi->s_ms = ms;
 	sbi->s_sbh = bh;
-	sbi->s_mount_state = ms->s_state;
-	sbi->s_ninodes = ms->s_ninodes;
-	sbi->s_nzones = ms->s_nzones;
-	sbi->s_imap_blocks = ms->s_imap_blocks;
-	sbi->s_zmap_blocks = ms->s_zmap_blocks;
-	sbi->s_firstdatazone = ms->s_firstdatazone;
-	sbi->s_log_zone_size = ms->s_log_zone_size;
-	sbi->s_max_size = ms->s_max_size;
-	s->s_magic = ms->s_magic;
-	if (s->s_magic == GBFS_SUPER_MAGIC) {
-		sbi->s_version = GBFS_V1;
-		sbi->s_dirsize = 16;
-		sbi->s_namelen = 14;
-		s->s_max_links = GBFS_LINK_MAX;
-	} else if (s->s_magic == GBFS_SUPER_MAGIC2) {
-		sbi->s_version = GBFS_V1;
-		sbi->s_dirsize = 32;
-		sbi->s_namelen = 30;
-		s->s_max_links = GBFS_LINK_MAX;
-	} else if (s->s_magic == GBFS2_SUPER_MAGIC) {
-		sbi->s_version = GBFS_V2;
+	if (ms->s_magic == GBFS_SUPER_MAGIC) {
+		s->s_magic = ms->s_magic;
+		sbi->s_imap_blocks = ms->s_imap_blocks;
+		sbi->s_zmap_blocks = ms->s_zmap_blocks;
+		sbi->s_firstdatazone = ms->s_firstdatazone;
+		sbi->s_log_zone_size = ms->s_log_zone_size;
+		sbi->s_max_size = ms->s_max_size;
+		sbi->s_ninodes = ms->s_ninodes;
 		sbi->s_nzones = ms->s_zones;
-		sbi->s_dirsize = 16;
-		sbi->s_namelen = 14;
-		s->s_max_links = GBFS2_LINK_MAX;
-	} else if (s->s_magic == GBFS2_SUPER_MAGIC2) {
-		sbi->s_version = GBFS_V2;
-		sbi->s_nzones = ms->s_zones;
-		sbi->s_dirsize = 32;
-		sbi->s_namelen = 30;
-		s->s_max_links = GBFS2_LINK_MAX;
-	} else if ( *(__u16 *)(bh->b_data + 24) == GBFS3_SUPER_MAGIC) {
-		m3s = (struct gbfs3_super_block *) bh->b_data;
-		s->s_magic = m3s->s_magic;
-		sbi->s_imap_blocks = m3s->s_imap_blocks;
-		sbi->s_zmap_blocks = m3s->s_zmap_blocks;
-		sbi->s_firstdatazone = m3s->s_firstdatazone;
-		sbi->s_log_zone_size = m3s->s_log_zone_size;
-		sbi->s_max_size = m3s->s_max_size;
-		sbi->s_ninodes = m3s->s_ninodes;
-		sbi->s_nzones = m3s->s_zones;
 		sbi->s_dirsize = 64;
 		sbi->s_namelen = 60;
-		sbi->s_version = GBFS_V3;
 		sbi->s_mount_state = GBFS_VALID_FS;
-		sb_set_blocksize(s, m3s->s_blocksize);
-		s->s_max_links = GBFS2_LINK_MAX;
+		sb_set_blocksize(s, ms->s_blocksize);
+		s->s_max_links = GBFS_LINK_MAX;
 	} else
 		goto out_no_fs;
 
@@ -305,8 +258,6 @@ static int gbfs_fill_super(struct super_block *s, void *data, int silent)
 		goto out_no_root;
 
 	if (!(s->s_flags & MS_RDONLY)) {
-		if (sbi->s_version != GBFS_V3) /* s_state is now out from V3 sb */
-			ms->s_state &= ~GBFS_VALID_FS;
 		mark_buffer_dirty(bh);
 	}
 	if (!(sbi->s_mount_state & GBFS_VALID_FS))
@@ -389,10 +340,7 @@ static int gbfs_statfs(struct dentry *dentry, struct kstatfs *buf)
 static int gbfs_get_block(struct inode *inode, sector_t block,
 		    struct buffer_head *bh_result, int create)
 {
-	if (INODE_VERSION(inode) == GBFS_V1)
-		return V1_gbfs_get_block(inode, block, bh_result, create);
-	else
-		return V2_gbfs_get_block(inode, block, bh_result, create);
+	return __gbfs_get_block(inode, block, bh_result, create);
 }
 
 static int gbfs_writepage(struct page *page, struct writeback_control *wbc)
@@ -522,49 +470,16 @@ void gbfs_set_inode(struct inode *inode, dev_t rdev)
 }
 
 /*
- * The gbfs V1 function to read an inode.
+ * The gbfs V2 function to read an inode.
  */
-static struct inode *V1_gbfs_iget(struct inode *inode)
+static struct inode *__gbfs_iget(struct inode *inode)
 {
 	struct buffer_head * bh;
 	struct gbfs_inode * raw_inode;
 	struct gbfs_inode_info *gbfs_inode = gbfs_i(inode);
 	int i;
 
-	raw_inode = gbfs_V1_raw_inode(inode->i_sb, inode->i_ino, &bh);
-	if (!raw_inode) {
-		iget_failed(inode);
-		return ERR_PTR(-EIO);
-	}
-	inode->i_mode = raw_inode->i_mode;
-	i_uid_write(inode, raw_inode->i_uid);
-	i_gid_write(inode, raw_inode->i_gid);
-	set_nlink(inode, raw_inode->i_nlinks);
-	inode->i_size = raw_inode->i_size;
-	inode->i_mtime.tv_sec = inode->i_atime.tv_sec = inode->i_ctime.tv_sec = raw_inode->i_time;
-	inode->i_mtime.tv_nsec = 0;
-	inode->i_atime.tv_nsec = 0;
-	inode->i_ctime.tv_nsec = 0;
-	inode->i_blocks = 0;
-	for (i = 0; i < 9; i++)
-		gbfs_inode->u.i1_data[i] = raw_inode->i_zone[i];
-	gbfs_set_inode(inode, old_decode_dev(raw_inode->i_zone[0]));
-	brelse(bh);
-	unlock_new_inode(inode);
-	return inode;
-}
-
-/*
- * The gbfs V2 function to read an inode.
- */
-static struct inode *V2_gbfs_iget(struct inode *inode)
-{
-	struct buffer_head * bh;
-	struct gbfs2_inode * raw_inode;
-	struct gbfs_inode_info *gbfs_inode = gbfs_i(inode);
-	int i;
-
-	raw_inode = gbfs_V2_raw_inode(inode->i_sb, inode->i_ino, &bh);
+	raw_inode = gbfs_raw_inode(inode->i_sb, inode->i_ino, &bh);
 	if (!raw_inode) {
 		iget_failed(inode);
 		return ERR_PTR(-EIO);
@@ -602,50 +517,20 @@ struct inode *gbfs_iget(struct super_block *sb, unsigned long ino)
 	if (!(inode->i_state & I_NEW))
 		return inode;
 
-	if (INODE_VERSION(inode) == GBFS_V1)
-		return V1_gbfs_iget(inode);
-	else
-		return V2_gbfs_iget(inode);
+	return __gbfs_iget(inode);
 }
 
 /*
- * The gbfs V1 function to synchronize an inode.
+ * The gbfs V2 function to synchronize an inode.
  */
-static struct buffer_head * V1_gbfs_update_inode(struct inode * inode)
+static struct buffer_head * gbfs_update_inode(struct inode * inode)
 {
 	struct buffer_head * bh;
 	struct gbfs_inode * raw_inode;
 	struct gbfs_inode_info *gbfs_inode = gbfs_i(inode);
 	int i;
 
-	raw_inode = gbfs_V1_raw_inode(inode->i_sb, inode->i_ino, &bh);
-	if (!raw_inode)
-		return NULL;
-	raw_inode->i_mode = inode->i_mode;
-	raw_inode->i_uid = fs_high2lowuid(i_uid_read(inode));
-	raw_inode->i_gid = fs_high2lowgid(i_gid_read(inode));
-	raw_inode->i_nlinks = inode->i_nlink;
-	raw_inode->i_size = inode->i_size;
-	raw_inode->i_time = inode->i_mtime.tv_sec;
-	if (S_ISCHR(inode->i_mode) || S_ISBLK(inode->i_mode))
-		raw_inode->i_zone[0] = old_encode_dev(inode->i_rdev);
-	else for (i = 0; i < 9; i++)
-		raw_inode->i_zone[i] = gbfs_inode->u.i1_data[i];
-	mark_buffer_dirty(bh);
-	return bh;
-}
-
-/*
- * The gbfs V2 function to synchronize an inode.
- */
-static struct buffer_head * V2_gbfs_update_inode(struct inode * inode)
-{
-	struct buffer_head * bh;
-	struct gbfs2_inode * raw_inode;
-	struct gbfs_inode_info *gbfs_inode = gbfs_i(inode);
-	int i;
-
-	raw_inode = gbfs_V2_raw_inode(inode->i_sb, inode->i_ino, &bh);
+	raw_inode = gbfs_raw_inode(inode->i_sb, inode->i_ino, &bh);
 	if (!raw_inode)
 		return NULL;
 	raw_inode->i_mode = inode->i_mode;
@@ -669,10 +554,7 @@ static int gbfs_write_inode(struct inode *inode, struct writeback_control *wbc)
 	int err = 0;
 	struct buffer_head *bh;
 
-	if (INODE_VERSION(inode) == GBFS_V1)
-		bh = V1_gbfs_update_inode(inode);
-	else
-		bh = V2_gbfs_update_inode(inode);
+	bh = gbfs_update_inode(inode);
 	if (!bh)
 		return -EIO;
 	if (wbc->sync_mode == WB_SYNC_ALL && buffer_dirty(bh)) {
@@ -691,10 +573,7 @@ int gbfs_getattr(struct vfsmount *mnt, struct dentry *dentry, struct kstat *stat
 {
 	struct super_block *sb = dentry->d_sb;
 	generic_fillattr(d_inode(dentry), stat);
-	if (INODE_VERSION(d_inode(dentry)) == GBFS_V1)
-		stat->blocks = (BLOCK_SIZE / 512) * V1_gbfs_blocks(stat->size, sb);
-	else
-		stat->blocks = (sb->s_blocksize / 512) * V2_gbfs_blocks(stat->size, sb);
+	stat->blocks = (sb->s_blocksize / 512) * gbfs_blocks(stat->size, sb);
 	stat->blksize = sb->s_blocksize;
 	return 0;
 }
@@ -704,12 +583,11 @@ int gbfs_getattr(struct vfsmount *mnt, struct dentry *dentry, struct kstat *stat
  */
 void gbfs_truncate(struct inode * inode)
 {
-	if (!(S_ISREG(inode->i_mode) || S_ISDIR(inode->i_mode) || S_ISLNK(inode->i_mode)))
+	if (!(S_ISREG(inode->i_mode) ||
+		S_ISDIR(inode->i_mode) || S_ISLNK(inode->i_mode)))
 		return;
-	if (INODE_VERSION(inode) == GBFS_V1)
-		V1_gbfs_truncate(inode);
-	else
-		V2_gbfs_truncate(inode);
+
+	__gbfs_truncate(inode);
 }
 
 static struct dentry *gbfs_mount(struct file_system_type *fs_type,
