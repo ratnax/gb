@@ -8,17 +8,6 @@
 #include "gbfs_uapi.h"
 
 /*
- * gbfs fs inode data in memory
- */
-struct gbfs_inode_info {
-	union {
-		__u16 i1_data[16];
-		__u32 i2_data[16];
-	} u;
-	struct inode vfs_inode;
-};
-
-/*
  * gbfs super-block data in memory
  */
 struct gbfs_sb_info {
@@ -74,16 +63,6 @@ extern const struct file_operations gbfs_dir_operations;
 static inline struct gbfs_sb_info *gbfs_sb(struct super_block *sb)
 {
 	return sb->s_fs_info;
-}
-
-static inline struct gbfs_inode_info *gbfs_i(struct inode *inode)
-{
-	return container_of(inode, struct gbfs_inode_info, vfs_inode);
-}
-
-static inline unsigned gbfs_blocks_needed(unsigned bits, unsigned blocksize)
-{
-	return DIV_ROUND_UP(bits, blocksize * 8);
 }
 
 #if defined(CONFIG_GBFS_FS_NATIVE_ENDIAN) && \

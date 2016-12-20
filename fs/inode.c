@@ -31,7 +31,7 @@ static void gbfs_evict_inode(struct inode *inode)
 	truncate_inode_pages_final(&inode->i_data);
 	if (!inode->i_nlink) {
 		inode->i_size = 0;
-		gbfs_truncate(inode);
+	//	gbfs_truncate(inode);
 	}
 	invalidate_inode_buffers(inode);
 	clear_inode(inode);
@@ -41,7 +41,6 @@ static void gbfs_evict_inode(struct inode *inode)
 
 static void gbfs_put_super(struct super_block *sb)
 {
-	int i;
 	struct gbfs_sb_info *sbi = gbfs_sb(sb);
 
 	if (sbi->dbp) {
@@ -53,73 +52,11 @@ static void gbfs_put_super(struct super_block *sb)
 		ret = sbi->dbp->close(sbi->dbp);
 		printk("gbfs: btree close status (%d).\n", ret);
 	}
-	if (!(sb->s_flags & MS_RDONLY)) {
-		mark_buffer_dirty(sbi->s_sbh);
-	}
-	for (i = 0; i < sbi->s_imap_blocks; i++)
-		brelse(sbi->s_imap[i]);
-	for (i = 0; i < sbi->s_zmap_blocks; i++)
-		brelse(sbi->s_zmap[i]);
-	brelse (sbi->s_sbh);
-	kfree(sbi->s_imap);
 	sb->s_fs_info = NULL;
 	kfree(sbi);
 }
 
-static struct kmem_cache * gbfs_inode_cachep;
-
-static struct inode *gbfs_alloc_inode(struct super_block *sb)
-{
-	struct gbfs_inode_info *ei;
-	ei = kmem_cache_alloc(gbfs_inode_cachep, GFP_KERNEL);
-	if (!ei)
-		return NULL;
-	return &ei->vfs_inode;
-}
-
-static void gbfs_i_callback(struct rcu_head *head)
-{
-	struct inode *inode = container_of(head, struct inode, i_rcu);
-	kmem_cache_free(gbfs_inode_cachep, gbfs_i(inode));
-}
-
-static void gbfs_destroy_inode(struct inode *inode)
-{
-	call_rcu(&inode->i_rcu, gbfs_i_callback);
-}
-
-static void init_once(void *foo)
-{
-	struct gbfs_inode_info *ei = (struct gbfs_inode_info *) foo;
-
-	inode_init_once(&ei->vfs_inode);
-}
-
-static int __init init_inodecache(void)
-{
-	gbfs_inode_cachep = kmem_cache_create("gbfs_inode_cache",
-					     sizeof(struct gbfs_inode_info),
-					     0, (SLAB_RECLAIM_ACCOUNT|
-						SLAB_MEM_SPREAD|SLAB_ACCOUNT),
-					     init_once);
-	if (gbfs_inode_cachep == NULL)
-		return -ENOMEM;
-	return 0;
-}
-
-static void destroy_inodecache(void)
-{
-	/*
-	 * Make sure all delayed rcu free inodes are flushed before we
-	 * destroy cache.
-	 */
-	rcu_barrier();
-	kmem_cache_destroy(gbfs_inode_cachep);
-}
-
 static const struct super_operations gbfs_sops = {
-	.alloc_inode	= gbfs_alloc_inode,
-	.destroy_inode	= gbfs_destroy_inode,
 	.write_inode	= gbfs_write_inode,
 	.evict_inode	= gbfs_evict_inode,
 	.put_super	= gbfs_put_super,
@@ -159,9 +96,8 @@ static int gbfs_remount (struct super_block * sb, int * flags, char * data)
 static int gbfs_fill_super(struct super_block *s, void *data, int silent)
 {
 	struct buffer_head *bh;
-	struct buffer_head **map;
 	struct gbfs_super_block *ms;
-	unsigned long i, block;
+	unsigned long i;
 	struct inode *root_inode;
 	struct gbfs_sb_info *sbi;
 	int ret = -EINVAL;
@@ -201,52 +137,6 @@ static int gbfs_fill_super(struct super_block *s, void *data, int silent)
 	sbi->dbp = dbopen("/media/x/gbdev", O_CREAT|O_RDWR, 
 			S_IRUSR | S_IWUSR, DB_BTREE, NULL);
 	printk("dbopen: %p\n", sbi->dbp);
-	/*
-	 * Allocate the buffer map to keep the superblock small.
-	 */
-	if (sbi->s_imap_blocks == 0 || sbi->s_zmap_blocks == 0)
-		goto out_illegal_sb;
-	i = (sbi->s_imap_blocks + sbi->s_zmap_blocks) * sizeof(bh);
-	map = kzalloc(i, GFP_KERNEL);
-	if (!map)
-		goto out_no_map;
-	sbi->s_imap = &map[0];
-	sbi->s_zmap = &map[sbi->s_imap_blocks];
-
-	block=2;
-	for (i=0 ; i < sbi->s_imap_blocks ; i++) {
-		if (!(sbi->s_imap[i]=sb_bread(s, block)))
-			goto out_no_bitmap;
-		block++;
-	}
-	for (i=0 ; i < sbi->s_zmap_blocks ; i++) {
-		if (!(sbi->s_zmap[i]=sb_bread(s, block)))
-			goto out_no_bitmap;
-		block++;
-	}
-
-	gbfs_set_bit(0,sbi->s_imap[0]->b_data);
-	gbfs_set_bit(0,sbi->s_zmap[0]->b_data);
-
-	/* Apparently gbfs can create filesystems that allocate more blocks for
-	 * the bitmaps than needed.  We simply ignore that, but verify it didn't
-	 * create one with not enough blocks and bail out if so.
-	 */
-	block = gbfs_blocks_needed(sbi->s_ninodes, s->s_blocksize);
-	if (sbi->s_imap_blocks < block) {
-		printk("GBFS-fs: file system does not have enough "
-				"imap blocks allocated.  Refusing to mount.\n");
-		goto out_no_bitmap;
-	}
-
-	block = gbfs_blocks_needed(
-			(sbi->s_nzones - sbi->s_firstdatazone + 1),
-			s->s_blocksize);
-	if (sbi->s_zmap_blocks < block) {
-		printk("GBFS-fs: file system does not have enough "
-				"zmap blocks allocated.  Refusing to mount.\n");
-		goto out_no_bitmap;
-	}
 
 	/* set up enough so that it can read an inode */
 	s->s_op = &gbfs_sops;
@@ -278,25 +168,12 @@ out_no_root:
 		printk("GBFS-fs: get root inode failed\n");
 	goto out_freemap;
 
-out_no_bitmap:
-	printk("GBFS-fs: bad superblock or unable to read bitmaps\n");
 out_freemap:
 	for (i = 0; i < sbi->s_imap_blocks; i++)
 		brelse(sbi->s_imap[i]);
 	for (i = 0; i < sbi->s_zmap_blocks; i++)
 		brelse(sbi->s_zmap[i]);
 	kfree(sbi->s_imap);
-	goto out_release;
-
-out_no_map:
-	ret = -ENOMEM;
-	if (!silent)
-		printk("GBFS-fs: can't allocate map\n");
-	goto out_release;
-
-out_illegal_sb:
-	if (!silent)
-		printk("GBFS-fs: bad superblock\n");
 	goto out_release;
 
 out_no_fs:
@@ -327,21 +204,13 @@ static int gbfs_statfs(struct dentry *dentry, struct kstatfs *buf)
 	buf->f_type = sb->s_magic;
 	buf->f_bsize = sb->s_blocksize;
 	buf->f_blocks = (sbi->s_nzones - sbi->s_firstdatazone) << sbi->s_log_zone_size;
-	buf->f_bfree = gbfs_count_free_blocks(sb);
 	buf->f_bavail = buf->f_bfree;
 	buf->f_files = sbi->s_ninodes;
-	buf->f_ffree = gbfs_count_free_inodes(sb);
 	buf->f_namelen = sbi->s_namelen;
 	buf->f_fsid.val[0] = (u32)id;
 	buf->f_fsid.val[1] = (u32)(id >> 32);
 
 	return 0;
-}
-
-static int gbfs_get_block(struct inode *inode, sector_t block,
-		    struct buffer_head *bh_result, int create)
-{
-	return __gbfs_get_block(inode, block, bh_result, create);
 }
 
 static int gbfs_writepage(struct page *page, struct writeback_control *wbc)
@@ -412,44 +281,14 @@ static int gbfs_readpage(struct file *file, struct page *page)
 
 int gbfs_prepare_chunk(struct page *page, loff_t pos, unsigned len)
 {
-	return __block_write_begin(page, pos, len, gbfs_get_block);
-}
-
-static void gbfs_write_failed(struct address_space *mapping, loff_t to)
-{
-	struct inode *inode = mapping->host;
-
-	if (to > inode->i_size) {
-		truncate_pagecache(inode, inode->i_size);
-		gbfs_truncate(inode);
-	}
-}
-
-static int gbfs_write_begin(struct file *file, struct address_space *mapping,
-			loff_t pos, unsigned len, unsigned flags,
-			struct page **pagep, void **fsdata)
-{
-	int ret;
-
-	ret = block_write_begin(mapping, pos, len, flags, pagep,
-				gbfs_get_block);
-	if (unlikely(ret))
-		gbfs_write_failed(mapping, pos + len);
-
-	return ret;
-}
-
-static sector_t gbfs_bmap(struct address_space *mapping, sector_t block)
-{
-	return generic_block_bmap(mapping,block,gbfs_get_block);
+	return 0;
 }
 
 static const struct address_space_operations gbfs_aops = {
 	.readpage = gbfs_readpage,
 	.writepage = gbfs_writepage,
-	.write_begin = gbfs_write_begin,
-	.write_end = generic_write_end,
-	.bmap = gbfs_bmap
+	.write_begin = simple_write_begin,
+	.write_end = simple_write_end,
 };
 
 static const struct inode_operations gbfs_symlink_inode_operations = {
@@ -482,8 +321,6 @@ void gbfs_set_inode(struct inode *inode, dev_t rdev)
 static struct inode *__gbfs_iget(struct inode *inode)
 {
 	struct gbfs_inode * raw_inode;
-	struct gbfs_inode_info *gbfs_inode = gbfs_i(inode);
-	int i;
 
 	raw_inode = gbfs_raw_inode(inode->i_sb, inode->i_ino);
 	if (!raw_inode) {
@@ -502,9 +339,7 @@ static struct inode *__gbfs_iget(struct inode *inode)
 	inode->i_atime.tv_nsec = 0;
 	inode->i_ctime.tv_nsec = 0;
 	inode->i_blocks = 0;
-	for (i = 0; i < 10; i++)
-		gbfs_inode->u.i2_data[i] = raw_inode->i_zone[i];
-	gbfs_set_inode(inode, old_decode_dev(raw_inode->i_zone[0]));
+	gbfs_set_inode(inode, 0);
 	unlock_new_inode(inode);
 	kfree(raw_inode);
 	return inode;
@@ -552,9 +387,7 @@ int gbfs_update_inode(struct inode *inode, struct gbfs_inode *raw_inode)
 
 static int gbfs_write_inode(struct inode *inode, struct writeback_control *wbc)
 {
-	struct gbfs_inode_info *gbfs_inode = gbfs_i(inode);
 	struct gbfs_inode * raw_inode;
-	int i;
 
 	raw_inode = gbfs_raw_inode(inode->i_sb, inode->i_ino);
 	if (!raw_inode)
@@ -568,11 +401,6 @@ static int gbfs_write_inode(struct inode *inode, struct writeback_control *wbc)
 	raw_inode->i_mtime = inode->i_mtime.tv_sec;
 	raw_inode->i_atime = inode->i_atime.tv_sec;
 	raw_inode->i_ctime = inode->i_ctime.tv_sec;
-	if (S_ISCHR(inode->i_mode) || S_ISBLK(inode->i_mode))
-		raw_inode->i_zone[0] = old_encode_dev(inode->i_rdev);
-	else for (i = 0; i < 10; i++)
-		raw_inode->i_zone[i] = gbfs_inode->u.i2_data[i];
-
 	return gbfs_update_inode(inode, raw_inode);
 }
 
@@ -580,21 +408,9 @@ int gbfs_getattr(struct vfsmount *mnt, struct dentry *dentry, struct kstat *stat
 {
 	struct super_block *sb = dentry->d_sb;
 	generic_fillattr(d_inode(dentry), stat);
-	stat->blocks = (sb->s_blocksize / 512) * gbfs_blocks(stat->size, sb);
+	stat->blocks = (sb->s_blocksize / 512) * stat->size / PAGE_SIZE;
 	stat->blksize = sb->s_blocksize;
 	return 0;
-}
-
-/*
- * The function that is called for file truncation.
- */
-void gbfs_truncate(struct inode * inode)
-{
-	if (!(S_ISREG(inode->i_mode) ||
-		S_ISDIR(inode->i_mode) || S_ISLNK(inode->i_mode)))
-		return;
-
-	__gbfs_truncate(inode);
 }
 
 static struct dentry *gbfs_mount(struct file_system_type *fs_type,
@@ -614,23 +430,12 @@ MODULE_ALIAS_FS("gbfs");
 
 static int __init init_gbfs_fs(void)
 {
-	int err = init_inodecache();
-	if (err)
-		goto out1;
-	err = register_filesystem(&gbfs_fs_type);
-	if (err)
-		goto out;
-	return 0;
-out:
-	destroy_inodecache();
-out1:
-	return err;
+	return register_filesystem(&gbfs_fs_type);
 }
 
 static void __exit exit_gbfs_fs(void)
 {
-        unregister_filesystem(&gbfs_fs_type);
-	destroy_inodecache();
+	unregister_filesystem(&gbfs_fs_type);
 }
 
 module_init(init_gbfs_fs)

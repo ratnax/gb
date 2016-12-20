@@ -42,7 +42,6 @@ struct gbfs_inode {
 	__u32 i_atime;
 	__u32 i_mtime;
 	__u32 i_ctime;
-	__u32 i_zone[10];
 };
 
 /*

@@ -37,7 +37,7 @@ static int gbfs_setattr(struct dentry *dentry, struct iattr *attr)
 			return error;
 
 		truncate_setsize(inode, attr->ia_size);
-		gbfs_truncate(inode);
+		// gbfs_truncate(inode);
 	}
 
 	setattr_copy(inode, attr);
