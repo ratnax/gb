@@ -12,9 +12,12 @@
 /* bitmap.c contains the code that handles the inode and block bitmaps */
 
 #include "gbfs.h"
+#include <linux/slab.h>
 #include <linux/buffer_head.h>
 #include <linux/bitops.h>
 #include <linux/sched.h>
+
+#include "keys.h"
 
 static DEFINE_SPINLOCK(bitmap_lock);
 
@@ -102,8 +105,8 @@ unsigned long gbfs_count_free_blocks(struct super_block *sb)
 		<< sbi->s_log_zone_size);
 }
 
-struct gbfs_inode *
-gbfs_raw_inode(struct super_block *sb, ino_t ino, struct buffer_head **bh)
+static struct gbfs_inode *
+minix_raw_inode(struct super_block *sb, ino_t ino, struct buffer_head **bh)
 {
 	int block;
 	struct gbfs_sb_info *sbi = gbfs_sb(sb);
@@ -128,22 +131,62 @@ gbfs_raw_inode(struct super_block *sb, ino_t ino, struct buffer_head **bh)
 	return p + ino % gbfs_inodes_per_block;
 }
 
+struct gbfs_inode *
+gbfs_raw_inode(struct super_block *sb, ino_t ino)
+{
+	int err;
+	struct gbfs_inode *raw_inode;
+	struct gbfs_sb_info *sbi = gbfs_sb(sb);
+
+	gbfs_inode_key_t key;
+	DBT kdbt, vdbt;
+
+	raw_inode = kmalloc(sizeof(struct gbfs_inode), GFP_KERNEL);
+	if (!raw_inode) 
+		return NULL;
+
+	key.type = GBFS_DB_INODE;
+	key.ino = ino;
+
+	kdbt.data = &key;
+	kdbt.size = sizeof(key);
+
+	err = sbi->dbp->get(sbi->dbp, &kdbt, &vdbt, 0);
+	if (!err) {
+		BUG_ON(vdbt.size != sizeof(struct gbfs_inode));
+		memcpy(raw_inode, vdbt.data, sizeof(struct gbfs_inode));
+	} else if (err == 1) {
+		if (ino == GBFS_ROOT_INO) {
+			struct buffer_head *bh;
+			struct gbfs_inode *p = minix_raw_inode(sb, ino, &bh);
+			if (p) {
+				*raw_inode = *p;
+				brelse(bh);
+			}
+		} else {
+			memset(raw_inode, 0, sizeof(struct gbfs_inode));
+		}
+	} else {
+		kfree(raw_inode);
+		raw_inode = NULL;
+	}
+
+	printk("GBFS: readinode: %lu %d\n", ino, err);
+	return raw_inode;
+}
+
 /* Clear the link count and mode of a deleted inode on disk. */
 
 static void gbfs_clear_inode(struct inode *inode)
 {
-	struct buffer_head *bh = NULL;
-
 	struct gbfs_inode *raw_inode;
-	raw_inode = gbfs_raw_inode(inode->i_sb, inode->i_ino, &bh);
+
+	raw_inode = gbfs_raw_inode(inode->i_sb, inode->i_ino);
 	if (raw_inode) {
 		raw_inode->i_nlinks = 0;
 		raw_inode->i_mode = 0;
-	}
-
-	if (bh) {
-		mark_buffer_dirty(bh);
-		brelse (bh);
+		
+		gbfs_update_inode(inode, raw_inode);
 	}
 }
 

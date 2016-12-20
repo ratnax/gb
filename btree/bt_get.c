@@ -25,6 +25,7 @@ __bt_get(dbp, key, data, flags)
 	int exact, status;
 
 	t = dbp->internal;
+	mutex_lock(&t->mutex);
 
 	/* Toss any page pinned across calls. */
 	if (t->bt_pinned != NULL) {
@@ -42,11 +43,13 @@ __bt_get(dbp, key, data, flags)
 		return (RET_ERROR);
 	if (!exact) {
 		mpool_put(t->bt_mp, e->page, 0);
+		mutex_unlock(&t->mutex);
 		return (RET_SPECIAL);
 	}
 
 	status = __bt_ret(t, e, NULL, NULL, data, &t->bt_rdata, 0);
 
 	t->bt_pinned = e->page;
+	mutex_unlock(&t->mutex);
 	return (status);
 }

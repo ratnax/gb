@@ -93,6 +93,7 @@ __bt_open(fname, flags, mode, openinfo, dflags)
 	if ((t = (BTREE *)kmalloc(sizeof(BTREE), GFP_KERNEL)) == NULL)
 		goto err;
 	memset(t, 0, sizeof(BTREE));
+	mutex_init(&t->mutex);
 	t->bt_file = NULL;			/* Don't close unopened fd on error. */
 	t->bt_cmp = b.compare;
 	t->bt_pfx = b.prefix;

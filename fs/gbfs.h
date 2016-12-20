@@ -40,7 +40,8 @@ struct gbfs_sb_info {
 };
 
 extern struct inode *gbfs_iget(struct super_block *, unsigned long);
-extern struct gbfs_inode * gbfs_raw_inode(struct super_block *, ino_t, struct buffer_head **);
+extern struct gbfs_inode * gbfs_raw_inode(struct super_block *, ino_t);
+extern int gbfs_update_inode(struct inode *, struct gbfs_inode *);
 extern struct inode * gbfs_new_inode(const struct inode *, umode_t, int *);
 extern void gbfs_free_inode(struct inode * inode);
 extern unsigned long gbfs_count_free_inodes(struct super_block *sb);

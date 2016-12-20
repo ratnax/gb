@@ -178,6 +178,7 @@ typedef struct _btree {
 
 	EPG	  bt_cur;		/* current (pinned) page */
 	PAGE	 *bt_pinned;		/* page pinned across calls */
+	struct mutex mutex;
 
 #define	BT_PUSH(t, p, i) {						\
 	t->bt_sp->pgno = p; 						\

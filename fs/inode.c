@@ -197,6 +197,10 @@ static int gbfs_fill_super(struct super_block *s, void *data, int silent)
 	} else
 		goto out_no_fs;
 
+
+	sbi->dbp = dbopen("/media/x/gbdev", O_CREAT|O_RDWR, 
+			S_IRUSR | S_IWUSR, DB_BTREE, NULL);
+	printk("dbopen: %p\n", sbi->dbp);
 	/*
 	 * Allocate the buffer map to keep the superblock small.
 	 */
@@ -267,9 +271,6 @@ static int gbfs_fill_super(struct super_block *s, void *data, int silent)
 		printk("GBFS-fs: mounting file system with errors, "
 			"running fsck is recommended\n");
 
-	sbi->dbp = dbopen("/media/x/gbdev", O_CREAT|O_RDWR, 
-			S_IRUSR | S_IWUSR, DB_BTREE, NULL);
-	printk("dbopen: %p\n", sbi->dbp);
 	return 0;
 
 out_no_root:
@@ -352,12 +353,14 @@ static int gbfs_writepage(struct page *page, struct writeback_control *wbc)
 	gbfs_data_key_t key;
 	DBT kdbt, vdbt;
 
+	key.type = GBFS_DB_PAGE;
 	key.ino = inode->i_ino;
 	key.pgoff = page_offset(page);
 
 	kdbt.data = &key;
 	kdbt.size = sizeof(key);
 
+	kmap(page);
 	vdbt.data = page_address(page);
 	vdbt.size = PAGE_SIZE;
 
@@ -367,8 +370,9 @@ static int gbfs_writepage(struct page *page, struct writeback_control *wbc)
     end_page_writeback(page);
     unlock_page(page);
 
-	printk(KERN_ERR "writepage: %lu %llu %d\n", inode->i_ino, 
+	printk(KERN_ERR "GBFS: writepage: %lu %llu %d\n", inode->i_ino, 
 				page_offset(page), err);
+	kunmap(page);
 	return err;
 }
 
@@ -381,12 +385,14 @@ static int gbfs_readpage(struct file *file, struct page *page)
 	gbfs_data_key_t key;
 	DBT kdbt, vdbt;
 
+	key.type = GBFS_DB_PAGE;
 	key.ino = inode->i_ino;
 	key.pgoff = page_offset(page);
 
 	kdbt.data = &key;
 	kdbt.size = sizeof(key);
 
+	kmap(page);
 	err = sbi->dbp->get(sbi->dbp, &kdbt, &vdbt, 0);
 	if (!err) {
 		memcpy(page_address(page), vdbt.data, PAGE_SIZE);
@@ -394,12 +400,13 @@ static int gbfs_readpage(struct file *file, struct page *page)
 	} else if (err == 1) {
 		memset(page_address(page), 0, PAGE_SIZE);
 		SetPageUptodate(page);
+		err = 0;
 	}
-
 	unlock_page(page);
 
-	printk(KERN_ERR "readpage: %lu %llu %d\n", inode->i_ino, 
+	printk(KERN_ERR "GBFS: readpage: %lu %llu %d\n", inode->i_ino, 
 			page_offset(page), err);
+	kunmap(page);
 	return err;	
 }
 
@@ -474,12 +481,11 @@ void gbfs_set_inode(struct inode *inode, dev_t rdev)
  */
 static struct inode *__gbfs_iget(struct inode *inode)
 {
-	struct buffer_head * bh;
 	struct gbfs_inode * raw_inode;
 	struct gbfs_inode_info *gbfs_inode = gbfs_i(inode);
 	int i;
 
-	raw_inode = gbfs_raw_inode(inode->i_sb, inode->i_ino, &bh);
+	raw_inode = gbfs_raw_inode(inode->i_sb, inode->i_ino);
 	if (!raw_inode) {
 		iget_failed(inode);
 		return ERR_PTR(-EIO);
@@ -499,8 +505,8 @@ static struct inode *__gbfs_iget(struct inode *inode)
 	for (i = 0; i < 10; i++)
 		gbfs_inode->u.i2_data[i] = raw_inode->i_zone[i];
 	gbfs_set_inode(inode, old_decode_dev(raw_inode->i_zone[0]));
-	brelse(bh);
 	unlock_new_inode(inode);
+	kfree(raw_inode);
 	return inode;
 }
 
@@ -520,19 +526,40 @@ struct inode *gbfs_iget(struct super_block *sb, unsigned long ino)
 	return __gbfs_iget(inode);
 }
 
-/*
- * The gbfs V2 function to synchronize an inode.
- */
-static struct buffer_head * gbfs_update_inode(struct inode * inode)
+int gbfs_update_inode(struct inode *inode, struct gbfs_inode *raw_inode)
 {
-	struct buffer_head * bh;
-	struct gbfs_inode * raw_inode;
+	int err;
+	struct gbfs_sb_info *sbi = gbfs_sb(inode->i_sb);
+
+	gbfs_inode_key_t key;
+	DBT kdbt, vdbt;
+
+	key.type = GBFS_DB_INODE;
+	key.ino = inode->i_ino;
+
+	kdbt.data = &key;
+	kdbt.size = sizeof(key);
+
+	vdbt.data = raw_inode;
+	vdbt.size = sizeof(struct gbfs_inode);
+
+	err = sbi->dbp->put(sbi->dbp, &kdbt, &vdbt, 0); 
+
+	printk(KERN_ERR "GBFS: writeinode: %lu %d\n", inode->i_ino, err); 
+	kfree(raw_inode);
+	return err;
+}
+
+static int gbfs_write_inode(struct inode *inode, struct writeback_control *wbc)
+{
 	struct gbfs_inode_info *gbfs_inode = gbfs_i(inode);
+	struct gbfs_inode * raw_inode;
 	int i;
 
-	raw_inode = gbfs_raw_inode(inode->i_sb, inode->i_ino, &bh);
+	raw_inode = gbfs_raw_inode(inode->i_sb, inode->i_ino);
 	if (!raw_inode)
-		return NULL;
+		return -EIO;
+
 	raw_inode->i_mode = inode->i_mode;
 	raw_inode->i_uid = fs_high2lowuid(i_uid_read(inode));
 	raw_inode->i_gid = fs_high2lowgid(i_gid_read(inode));
@@ -545,28 +572,8 @@ static struct buffer_head * gbfs_update_inode(struct inode * inode)
 		raw_inode->i_zone[0] = old_encode_dev(inode->i_rdev);
 	else for (i = 0; i < 10; i++)
 		raw_inode->i_zone[i] = gbfs_inode->u.i2_data[i];
-	mark_buffer_dirty(bh);
-	return bh;
-}
 
-static int gbfs_write_inode(struct inode *inode, struct writeback_control *wbc)
-{
-	int err = 0;
-	struct buffer_head *bh;
-
-	bh = gbfs_update_inode(inode);
-	if (!bh)
-		return -EIO;
-	if (wbc->sync_mode == WB_SYNC_ALL && buffer_dirty(bh)) {
-		sync_dirty_buffer(bh);
-		if (buffer_req(bh) && !buffer_uptodate(bh)) {
-			printk("IO error syncing gbfs inode [%s:%08lx]\n",
-				inode->i_sb->s_id, inode->i_ino);
-			err = -EIO;
-		}
-	}
-	brelse (bh);
-	return err;
+	return gbfs_update_inode(inode, raw_inode);
 }
 
 int gbfs_getattr(struct vfsmount *mnt, struct dentry *dentry, struct kstat *stat)

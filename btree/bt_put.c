@@ -33,6 +33,7 @@ __bt_put(dbp, key, data, flags)
 
 	t = dbp->internal;
 
+	mutex_lock(&t->mutex);
 	/* Toss any page pinned across calls. */
 	if (t->bt_pinned != NULL) {
 		mpool_put(t->bt_mp, t->bt_pinned, 0);
@@ -123,6 +124,7 @@ storekey:		if (__ovfl_put(t, key, &pg) == RET_ERROR)
 	mpool_put(t->bt_mp, h, MPOOL_DIRTY);
 
 success:
+	mutex_unlock(&t->mutex);
 	F_SET(t, B_MODIFIED);
 	return (RET_SUCCESS);
 }
