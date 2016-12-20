@@ -48,19 +48,8 @@ struct gbfs_inode {
  * V3 gbfs super-block data on disk
  */
 struct gbfs_super_block {
-	__u32 s_ninodes;
-	__u16 s_pad0;
-	__u16 s_imap_blocks;
-	__u16 s_zmap_blocks;
-	__u16 s_firstdatazone;
-	__u16 s_log_zone_size;
-	__u16 s_pad1;
-	__u32 s_max_size;
-	__u32 s_zones;
 	__u16 s_magic;
-	__u16 s_pad2;
 	__u16 s_blocksize;
-	__u8  s_disk_version;
 };
 
 struct gbfs_dir_entry {

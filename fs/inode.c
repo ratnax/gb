@@ -77,11 +77,11 @@ static int gbfs_remount (struct super_block * sb, int * flags, char * data)
 		if (!(sbi->s_mount_state & GBFS_VALID_FS))
 			return 0;
 		/* Mounting a rw partition read-only. */
-		mark_buffer_dirty(sbi->s_sbh);
+		//	todo mark_buffer_dirty(sbi->s_sbh);
 	} else {
 	  	/* Mount a partition which is read-only, read-write. */
 		sbi->s_mount_state = GBFS_VALID_FS;
-		mark_buffer_dirty(sbi->s_sbh);
+		// todo mark_buffer_dirty(sbi->s_sbh);
 
 		if (!(sbi->s_mount_state & GBFS_VALID_FS))
 			printk("GBFS-fs warning: remounting unchecked fs, "
@@ -95,9 +95,7 @@ static int gbfs_remount (struct super_block * sb, int * flags, char * data)
 
 static int gbfs_fill_super(struct super_block *s, void *data, int silent)
 {
-	struct buffer_head *bh;
 	struct gbfs_super_block *ms;
-	unsigned long i;
 	struct inode *root_inode;
 	struct gbfs_sb_info *sbi;
 	int ret = -EINVAL;
@@ -107,24 +105,20 @@ static int gbfs_fill_super(struct super_block *s, void *data, int silent)
 		return -ENOMEM;
 	s->s_fs_info = sbi;
 
-	if (!sb_set_blocksize(s, BLOCK_SIZE))
+	if (!sb_set_blocksize(s, PAGE_SIZE))
 		goto out_bad_hblock;
 
-	if (!(bh = sb_bread(s, 1)))
-		goto out_bad_sb;
+	ms = kzalloc(sizeof(struct gbfs_super_block), GFP_KERNEL);
+	if (!ms)
+		return -ENOMEM;
 
-	ms = (struct gbfs_super_block *) bh->b_data;
+
+	ms->s_magic = GBFS_SUPER_MAGIC;
+	ms->s_blocksize = PAGE_SIZE;
+
 	sbi->s_ms = ms;
-	sbi->s_sbh = bh;
 	if (ms->s_magic == GBFS_SUPER_MAGIC) {
 		s->s_magic = ms->s_magic;
-		sbi->s_imap_blocks = ms->s_imap_blocks;
-		sbi->s_zmap_blocks = ms->s_zmap_blocks;
-		sbi->s_firstdatazone = ms->s_firstdatazone;
-		sbi->s_log_zone_size = ms->s_log_zone_size;
-		sbi->s_max_size = ms->s_max_size;
-		sbi->s_ninodes = ms->s_ninodes;
-		sbi->s_nzones = ms->s_zones;
 		sbi->s_dirsize = 64;
 		sbi->s_namelen = 60;
 		sbi->s_mount_state = GBFS_VALID_FS;
@@ -151,9 +145,9 @@ static int gbfs_fill_super(struct super_block *s, void *data, int silent)
 	if (!s->s_root)
 		goto out_no_root;
 
-	if (!(s->s_flags & MS_RDONLY)) {
-		mark_buffer_dirty(bh);
-	}
+//	if (!(s->s_flags & MS_RDONLY)) {
+// todo		mark_buffer_dirty(bh);
+//	}
 	if (!(sbi->s_mount_state & GBFS_VALID_FS))
 		printk("GBFS-fs: mounting unchecked file system, "
 			"running fsck is recommended\n");
@@ -169,11 +163,6 @@ out_no_root:
 	goto out_freemap;
 
 out_freemap:
-	for (i = 0; i < sbi->s_imap_blocks; i++)
-		brelse(sbi->s_imap[i]);
-	for (i = 0; i < sbi->s_zmap_blocks; i++)
-		brelse(sbi->s_zmap[i]);
-	kfree(sbi->s_imap);
 	goto out_release;
 
 out_no_fs:
@@ -181,15 +170,12 @@ out_no_fs:
 		printk("VFS: Can't find a Minix filesystem V1 | V2 | V3 "
 		       "on device %s.\n", s->s_id);
 out_release:
-	brelse(bh);
 	goto out;
 
 out_bad_hblock:
 	printk("GBFS-fs: blocksize too small for device\n");
 	goto out;
 
-out_bad_sb:
-	printk("GBFS-fs: unable to read superblock\n");
 out:
 	s->s_fs_info = NULL;
 	kfree(sbi);
@@ -203,9 +189,9 @@ static int gbfs_statfs(struct dentry *dentry, struct kstatfs *buf)
 	u64 id = huge_encode_dev(sb->s_bdev->bd_dev);
 	buf->f_type = sb->s_magic;
 	buf->f_bsize = sb->s_blocksize;
-	buf->f_blocks = (sbi->s_nzones - sbi->s_firstdatazone) << sbi->s_log_zone_size;
+	buf->f_blocks = 0; // todo 
 	buf->f_bavail = buf->f_bfree;
-	buf->f_files = sbi->s_ninodes;
+	buf->f_files = 0;
 	buf->f_namelen = sbi->s_namelen;
 	buf->f_fsid.val[0] = (u32)id;
 	buf->f_fsid.val[1] = (u32)(id >> 32);

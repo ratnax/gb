@@ -11,21 +11,13 @@
  * gbfs super-block data in memory
  */
 struct gbfs_sb_info {
-	unsigned long s_ninodes;
-	unsigned long s_nzones;
-	unsigned long s_imap_blocks;
-	unsigned long s_zmap_blocks;
-	unsigned long s_firstdatazone;
-	unsigned long s_log_zone_size;
 	unsigned long s_max_size;
 	int s_dirsize;
 	int s_namelen;
-	struct buffer_head ** s_imap;
-	struct buffer_head ** s_zmap;
-	struct buffer_head * s_sbh;
 	struct gbfs_super_block * s_ms;
 	DB *dbp;
 	unsigned short s_mount_state;
+	unsigned short s_max_links;
 };
 
 extern struct inode *gbfs_iget(struct super_block *, unsigned long);
