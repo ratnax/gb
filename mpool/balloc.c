@@ -19,44 +19,7 @@
 
 #include <db.h>
 #include <mpool.h>
-
-#define MIN_UNIT_SHFT	(PAGE_SHFT)
-#define MIN_UNIT_SIZE	(1UL << MIN_UNIT_SHFT)
-
-#define MAX_UNIT_SHFT	(22)
-#define MAX_UNIT_SIZE	(1UL << MAX_UNIT_SHFT)
-#define MAX_UNIT_MASK	(MAX_UNIT_SIZE - 1)
-
-#define TOTAL_SPACE (4*1024*1024*1024ULL)
-#define TOTAL_UNITS (TOTAL_SPACE / MAX_UNIT_SIZE) 
-
-typedef enum blk_unit_type_t {
-	BLK_UNIT_4KB,
-	BLK_UNIT_8KB,
-	BLK_UNIT_16KB,
-	BLK_UNIT_32KB,
-	BLK_UNIT_64KB,
-	BLK_UNIT_128KB,
-	BLK_UNIT_256KB,
-	BLK_UNIT_512KB,
-	BLK_UNIT_1MB,
-	BLK_UNIT_2MB,
-	BLK_UNIT_4MB,
-	BLK_UNIT_MAX
-} blk_unit_type_t;
-
-typedef struct blk_unit_t {
-	uint32_t type;
-	uint32_t nmax;
-	uint32_t nfree;
-	uint32_t rsvd;
-	uint64_t map[1 << (MAX_UNIT_SHFT - MIN_UNIT_SHFT - 6)];
-} blk_unit_t;
-
-typedef union blk_unit_page_t {
-	blk_unit_t blk_units[28];
-	uint8_t page[PAGE_SIZE];
-} blk_unit_page_t;
+#include "balloc.h"
 
 uint64_t *maps[BLK_UNIT_MAX];
 int fd;
@@ -143,33 +106,38 @@ int mpool_bfree(MPOOL *mp, uint64_t blk)
 	return 0;
 }
 
-int balloc_init(void)
+int balloc_init(MPOOL *mp)
 {
+	int i, j;
+	blk_unit_page_t *p= NULL;
+
+	p = kzlloc(sizeof(blk_unit_page_t), GFP_KERNEL);
+	if (!p)
+		return -ENOMEM;
+
+	for (i = 0; i < BLK_UNIT_MAX; i++) {
+		maps[i] = kzalloc(TOTAL_UNITS >> 3, GFP_KERNEL);
+		if (!maps[i])
+			return -ENOMEM;
+	}
+
+	for (i = 0; i < (TOTAL_UNITS + 27) / 28; i++) {
+		
+		p = mpool_get_pg(mp, 2 + i, 0);
+		if (!p)
+			return -EIO;
+
+		for (j = 0; j < 28; j++) {
+			if (p->blk_units[j].nfree > 0) 
+				set_bit(i * 28 + j, maps[p->blk_units[j].type]);
+		}
+	} 
+
 	return 0;
 }
+
 
 #if 0
-#include <string.h>
-
-int mkb(void)
-{
-	int i;
-	blk_unit_page_t p;
-
-	for (i = 0; i < 28; i++) {
-		p.blk_units[i].type = BLK_UNIT_4MB;
-		p.blk_units[i].nmax = p.blk_units[i].nfree = 1;
-		memset(p.blk_units[i].map, 0, sizeof(p.blk_units[i].map));
-	}
-
-	printf("total units: %llu\n", TOTAL_UNITS);
-	for (i = 0; i < (TOTAL_UNITS + 27) / 28; i++) {
-		if (PAGE_SIZE != pwrite(fd, &p, PAGE_SIZE, i << PAGE_SHFT))
-			return -EIO;	
-	}
-	return 0;
-}
-
 #include <time.h>
 
 void test(void)

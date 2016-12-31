@@ -6,6 +6,7 @@
 #include <list.h>
 #endif
 
+#include <db.h>
 /*
  * The memory pool scheme is a simple one.  Each in-memory page is referenced
  * by a bucket which is threaded in up to two of three ways.  All active pages

@@ -20,10 +20,7 @@
 
 #define	__MPOOLINTERFACE_PRIVATE
 #include <mpool.h>
-
-extern int mpool_balloc(MPOOL *mp, int order, uint64_t *out_blkno);
-extern int mpool_bfree(MPOOL *mp, uint64_t blkno);
-extern int balloc_init(void);
+#include "balloc.h"
 
 static BKT *mpool_look (MPOOL *, pgno_t);
 static int  mpool_write (MPOOL *, BKT *);
@@ -57,7 +54,11 @@ mpool_open(fname, file, pagesize, maxcache)
 	mp->pagesize = pagesize;
 	mp->file = file;
 
-	balloc_init();
+	ret = balloc_init(mp);
+	if (ret) {
+		kfree(mp);
+		mp = NULL;
+	}
 	return (mp);
 }
 
