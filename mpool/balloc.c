@@ -1,5 +1,5 @@
-#define PAGE_SHFT (12)
 #ifdef __KERNEL__
+#include <linux/slab.h>
 #else
 #include <stdio.h>
 #include <stdint.h>
@@ -37,13 +37,14 @@ int mpool_balloc(MPOOL *mp, int order, uint64_t *out_blk)
 
 		pno = unit / 28;
    	
-		p = (blk_unit_page_t *) mpool_get_pg(mp, pno, 0);
+		p = (blk_unit_page_t *) mpool_get_pg(mp, pno + 2, 0);
 		if (!p)
 			return -EIO;
 
 		bu = &p->blk_units[unit % 28];
 
 		bit = find_next_zero_bit((unsigned long *) bu->map, bu->nmax, 0); 
+
 		if (--bu->nfree == 0)
 			clear_bit(unit, (unsigned long *) map);
 	} else {
@@ -55,7 +56,7 @@ int mpool_balloc(MPOOL *mp, int order, uint64_t *out_blk)
 
 		pno = unit / 28;
 
-		p = mpool_get_pg(mp, pno, 0);
+		p = mpool_get_pg(mp, pno + 2, 0);
 		if (!p) 
 			return -EIO;
 		
@@ -85,7 +86,7 @@ int mpool_bfree(MPOOL *mp, uint64_t blk)
 	blk_unit_page_t *p;
 	blk_unit_t *bu;
 
-	p = (blk_unit_page_t *) mpool_get_pg(mp, pno, 0);
+	p = (blk_unit_page_t *) mpool_get_pg(mp, pno + 2, 0);
 	if (!p)
 		return -EIO;
 	
@@ -106,12 +107,32 @@ int mpool_bfree(MPOOL *mp, uint64_t blk)
 	return 0;
 }
 
+int mpool_alloced(MPOOL *mp, uint64_t blk)
+{
+	unsigned long unit = blk >> MAX_UNIT_SHFT;
+	unsigned long pno = unit / 28;
+	blk_unit_page_t *p;
+	blk_unit_t *bu;
+	int ret;
+
+	p = (blk_unit_page_t *) mpool_get_pg(mp, pno + 2, 0);
+	if (!p)
+		return -EIO;
+	
+   	bu = &p->blk_units[unit % 28];
+
+	ret = test_bit((blk & MAX_UNIT_MASK) >> (bu->type + MIN_UNIT_SHFT), 
+			(unsigned long *) bu->map);
+	mpool_put(mp, p, 0);
+	return ret;
+}
+
 int balloc_init(MPOOL *mp)
 {
 	int i, j;
 	blk_unit_page_t *p= NULL;
 
-	p = kzlloc(sizeof(blk_unit_page_t), GFP_KERNEL);
+	p = kzalloc(sizeof(blk_unit_page_t), GFP_KERNEL);
 	if (!p)
 		return -ENOMEM;
 
@@ -124,13 +145,19 @@ int balloc_init(MPOOL *mp)
 	for (i = 0; i < (TOTAL_UNITS + 27) / 28; i++) {
 		
 		p = mpool_get_pg(mp, 2 + i, 0);
-		if (!p)
+		if (!p) {
+			printk(KERN_ERR "GBFS: failed to get pg %d\n", 2+i);
 			return -EIO;
+		}
 
 		for (j = 0; j < 28; j++) {
-			if (p->blk_units[j].nfree > 0) 
-				set_bit(i * 28 + j, maps[p->blk_units[j].type]);
+			if (p->blk_units[j].nfree > 0) {
+				set_bit(i * 28 + j, 
+						(unsigned long *) maps[p->blk_units[j].type]);
+			}
 		}
+
+		mpool_put(mp, p, 0);
 	} 
 
 	return 0;

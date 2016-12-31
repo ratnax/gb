@@ -21,7 +21,7 @@ main()
 		exit 1
 	fi
 	
-	for t in 1 2 3 4 5 6; do
+	for t in 1 2 3 4 5; do
 		test$t
 	done
 	rm -f $TMP1 $TMP2 $TMP3
@@ -43,6 +43,7 @@ test1()
 			echo g
 			echo k$i
 		done > $TMP2
+		echo $PROG "-o" $TMP3 $type $TMP2
 		$PROG -o $TMP3 $type $TMP2
 		if (cmp -s $TMP1 $TMP3) ; then :
 		else
@@ -84,7 +85,8 @@ test3()
 	echo "Test 3: btree: small key, big data pairs"
 	rm -f $TMP1
 	(find /bin -type f -print | xargs cat) > $TMP1
-	for psize in 512 16384 65536; do
+#	for psize in 512 16384 65536; do
+	for psize in 4096; do
 		echo "    page size $psize"
 		for type in btree; do
 			rm -f $TMP2 $TMP3
@@ -95,6 +97,7 @@ test3()
 				echo g
 				echo k$i
 			done > $TMP2
+			echo $PROG "-i" psize=$psize "-o" $TMP3 $type $TMP2
 			$PROG -i psize=$psize -o $TMP3 $type $TMP2
 			if (cmp -s $TMP1 $TMP3) ; then :
 			else

@@ -27,7 +27,7 @@ struct hlist_node {
 #define mutex_lock(x) pthread_mutex_lock(x)
 #define mutex_unlock(x) pthread_mutex_unlock(x)
 #define kernel_read(a, b, c, d) pread(a, c, d, b)
-#define kernel_write(a, b, c, d) pread(a, b, c, d)
+#define kernel_write(a, b, c, d) pwrite(a, b, c, d)
 #define vfs_fsync(x, y) fsync(x)
 #define BUG() assert(0)
 #define BUG_ON(x) assert(!(x))

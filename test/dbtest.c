@@ -151,10 +151,11 @@ main(argc, argv)
 			p = "/var/tmp";
 		(void)sprintf(buf, "%s/__dbtest", p);
 		fname = buf;
-		(void)unlink(buf);
+//		(void)unlink(buf);
 	} else  if (!sflag)
-		(void)unlink(fname);
+//		(void)unlink(fname);
 
+	printf("%s\n", fname);
 	if ((dbp = dbopen(fname,
 	    oflags, S_IRUSR | S_IWUSR, type, infop)) == NULL)
 		err("dbopen: %s", strerror(errno));
@@ -445,10 +446,6 @@ setinfo(type, s)
 	}
 	if (!strcmp("minkeypage", s)) {
 		ib.minkeypage = atoi(eq);
-		return (&ib);
-	}
-	if (!strcmp("lorder", s)) {
-		ib.lorder = atoi(eq);
 		return (&ib);
 	}
 	if (!strcmp("psize", s)) {

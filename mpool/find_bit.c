@@ -161,3 +161,41 @@ clear_bit(long nr, volatile unsigned long *addr)
 }
 
 
+# define _BITOPS_LONG_SHIFT 6
+
+# define CC_SET(c) "\n\t/* output condition code " #c "*/\n"
+# define CC_OUT(c) "=@cc" #c
+
+static __always_inline int constant_test_bit(long nr, const volatile unsigned long *addr)
+{
+	return ((1UL << (nr & (BITS_PER_LONG-1))) &
+		(addr[nr >> _BITOPS_LONG_SHIFT])) != 0;
+}
+
+static __always_inline int variable_test_bit(long nr, volatile const unsigned long *addr)
+{
+	int oldbit;
+
+	asm volatile("bt %2,%1\n\t"
+		     CC_SET(c)
+		     : CC_OUT(c) (oldbit)
+		     : "m" (*(unsigned long *)addr), "Ir" (nr));
+
+	return oldbit;
+}
+
+#if 0 /* Fool kernel-doc since it doesn't do macros yet */
+/**
+ * test_bit - Determine whether a bit is set
+ * @nr: bit number to test
+ * @addr: Address to start counting from
+ */
+static int test_bit(int nr, const volatile unsigned long *addr);
+#endif
+
+#define test_bit(nr, addr)			\
+	(__builtin_constant_p((nr))		\
+	 ? constant_test_bit((nr), (addr))	\
+	 : variable_test_bit((nr), (addr)))
+
+

@@ -40,9 +40,11 @@ int mkballoc(int fd)
 	p.blk_units[0].nfree = MAX_UNIT_SIZE / 4096;
 	p.blk_units[0].nmax = p.blk_units[0].nfree;
 
-	for (i = 0; i < 40; i++) 
+	for (i = 0; i < 40; i++) {
 		set_bit(i, (unsigned long *) p.blk_units[0].map);
-
+		p.blk_units[0].nfree--;
+	}
+		
 	if (PAGE_SIZE != pwrite(fd, &p, PAGE_SIZE, 2 << PAGE_SHFT)) 
 		return -EIO;
 

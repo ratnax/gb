@@ -78,12 +78,14 @@ __ovfl_get(t, p, ssz, buf, bufsz)
 	 * into the buffer.  Never copy more than the data's length.
 	 */
 	plen = t->bt_psize - BTDATAOFF;
-	for (p = *buf;; p = (char *)p + nb, pg = h->nextpg) {
+	//for (p = *buf;; p = (char *)p + nb, pg = h->nextpg) {
+	for (p = *buf;; p = (char *)p + nb) {
 		if ((h = mpool_get_pg(t->bt_mp, pg, 0)) == NULL)
 			return (RET_ERROR);
 
 		nb = MIN(sz, plen);
 		memmove(p, (char *)h + BTDATAOFF, nb);
+		pg = h->nextpg;
 		mpool_put(t->bt_mp, h, 0);
 
 		if ((sz -= nb) == 0)

@@ -42,7 +42,7 @@ mpool_open(fname, file, pagesize, maxcache)
 	pgno_t pagesize, maxcache;
 {
 	MPOOL *mp;
-	int entry;
+	int entry, ret;
 
 	/* Allocate and initialize the MPOOL cookie. */
 	if ((mp = (MPOOL *)kzalloc(sizeof(MPOOL), GFP_KERNEL)) == NULL)
@@ -50,12 +50,13 @@ mpool_open(fname, file, pagesize, maxcache)
 	INIT_LIST_HEAD(&mp->lqh);
 	for (entry = 0; entry < HASHSIZE; ++entry)
 		INIT_HLIST_HEAD(&mp->hqh[entry]);
-	mp->maxcache = maxcache;
+	mp->maxcache = 1; //maxcache;
 	mp->pagesize = pagesize;
 	mp->file = file;
 
 	ret = balloc_init(mp);
 	if (ret) {
+		printk(KERN_ERR "GBFS: failed to init ballocator\n");
 		kfree(mp);
 		mp = NULL;
 	}
@@ -112,7 +113,6 @@ new:
 	return (bp);
 }
 
-
 /*
  * mpool_get
  *	Get a page.
@@ -129,6 +129,9 @@ __mpool_get(mp, pgno, npgs, flags)
 	off_t off;
 	int nr;
 
+	if (pgno >= 40 && !(flags & MPOOL_NEW) &&
+		!mpool_alloced(mp, pgno * mp->pagesize))
+		return NULL;
 
 	/* Check for a page that is cached. */
 	if ((bp = mpool_look(mp, pgno)) != NULL) {
@@ -149,19 +152,23 @@ __mpool_get(mp, pgno, npgs, flags)
 
 		/* Return a pinned page. */
 		bp->pinned++;
+
 		return (bp->page);
 	}
 
 	/* Get a page from the cache. */
-	if ((bp = mpool_bkt(mp, npgs)) == NULL)
+	if ((bp = mpool_bkt(mp, npgs)) == NULL) 
 		return (NULL);
+	
 
 	/* Read in the contents. */
 	if (!(flags & MPOOL_NEW)) {
 		off = mp->pagesize * pgno;
 
+
 		nr = kernel_read(mp->file, off, bp->page, npgs * mp->pagesize);
 		if (nr != npgs * mp->pagesize) {
+			printk(KERN_ERR "GBFS: Failed to read page at %ld\n", off);
 	//		if (nr >= 0)
 	//			errno = EFTYPE; TODO
 			return (NULL);
@@ -200,7 +207,7 @@ mpool_new(mp, pgnoaddr, offaddr, size)
 	size_t order;
 
 	for (order = 0; size > (1 << order); order++);
-	
+
 	ret = mpool_balloc(mp, order, &blk);
 	if (ret)
 		return NULL;
@@ -225,11 +232,21 @@ mpool_new_pg (mp, pgnoaddr)
 
 	for (order = 0; mp->pagesize > (1 << order); order++);
 
+#if 0
+	static int k = 0;
+	if (!k) 
+		k = lseek(mp->file, 0, SEEK_END) / 4096;	
+	*pgnoaddr = k++; 
+#else
+
 	ret = mpool_balloc(mp, order, &blk);
-	if (ret) 
+	if (ret) {
+		printk(KERN_ERR "alloc failed\n");
 		return NULL;
+	}
 
 	*pgnoaddr = blk / mp->pagesize;
+#endif
 	return __mpool_get(mp, *pgnoaddr, 1, MPOOL_NEW);
 }
 

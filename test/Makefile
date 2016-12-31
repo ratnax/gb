@@ -1,7 +1,8 @@
 #	@(#)Makefile	8.15 (Berkeley) 7/28/94
 
 PROG=	dbtest
-OBJS=	dbtest.o strerror.o
+OBJS=	dbtest.o 
+#strerror.o
 
 # Uncomment the STAT line get hash and btree statistical use info.  This
 # also forces ld to load the btree debug functions for use by gdb, which

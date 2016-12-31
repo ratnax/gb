@@ -182,9 +182,9 @@ __bt_open(fname, flags, mode, openinfo, dflags)
 #ifdef __KERNEL__
 	if (sb.size) {
 #else
-	if (sb.st_size) {
+	if (sb.st_size > 40 * 4 * 1024) {
 #endif
-		if ((nr = kernel_read(t->bt_file, 0, (char *) &m, sizeof(BTMETA))) < 0)
+		if ((nr = kernel_read(t->bt_file, P_META * 4096, (char *) &m, sizeof(BTMETA))) < 0)
 			goto err;
 		if (nr != sizeof(BTMETA))
 			goto eftype;
@@ -252,8 +252,12 @@ __bt_open(fname, flags, mode, openinfo, dflags)
 	}
 
 	/* Create a root page if new tree. */
-	if (nroot(t) == RET_ERROR)
+	if (nroot(t) == RET_ERROR) {
+		printk(KERN_ERR "GBFS: nroot failed\n");
 		goto err;
+	}
+		
+	printk(KERN_ERR "GBFS: Btree open successfull\n");
 
 	return (dbp);
 
@@ -296,7 +300,7 @@ nroot(t)
 	PAGE *meta, *root;
 	pgno_t npg;
 
-	if ((meta = mpool_get_pg(t->bt_mp, 0, 0)) != NULL) {
+	if ((meta = mpool_get_pg(t->bt_mp, P_META, 0)) != NULL) {
 		mpool_put(t->bt_mp, meta, 0);
 		return (RET_SUCCESS);
 	}

@@ -3,6 +3,12 @@
 
 #include <mpool.h>
 
+#define PAGE_SHFT (12)
+#ifdef __KERNEL__
+#else
+#define PAGE_SIZE (1UL << PAGE_SHFT)
+#endif
+
 #define MIN_UNIT_SHFT	(PAGE_SHFT)
 #define MIN_UNIT_SIZE	(1UL << MIN_UNIT_SHFT)
 
@@ -43,5 +49,6 @@ typedef union blk_unit_page_t {
 
 extern int mpool_balloc(MPOOL *mp, int order, uint64_t *out_blkno);
 extern int mpool_bfree(MPOOL *mp, uint64_t blkno);
-extern int balloc_init(void);
+extern int mpool_alloced(MPOOL *mp, uint64_t blk);
+extern int balloc_init(MPOOL *mp);
 #endif

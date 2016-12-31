@@ -17,8 +17,8 @@
  * to page 0.  Page 1 is the root of the btree.
  */
 #define	P_INVALID	 0		/* Invalid tree page number. */
-#define	P_META		 0		/* Tree metadata page number. */
-#define	P_ROOT		 1		/* Tree root page number. */
+#define	P_META		 40		/* Tree metadata page number. */
+#define	P_ROOT		 41		/* Tree root page number. */
 
 /*
  * There are five page layouts in the btree: btree internal pages (BINTERNAL),
