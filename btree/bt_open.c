@@ -1,6 +1,20 @@
+#ifdef __KERNEL__
 #include <linux/slab.h>
 #include <linux/fs.h>
 #include <linux/uaccess.h>
+#else
+#include <sys/param.h>
+#include <sys/stat.h>
+
+#include <errno.h>
+#include <fcntl.h>
+#include <limits.h>
+#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#endif
 
 #include <db.h>
 #include "btree.h"
@@ -30,7 +44,11 @@ __bt_open(fname, flags, mode, openinfo, dflags)
 	int flags, mode, dflags;
 	const BTREEINFO *openinfo;
 {
+#ifdef __KERNEL__
 	struct kstat sb;
+#else
+	struct stat sb;
+#endif
 	BTMETA m;
 	BTREE *t;
 	BTREEINFO b;
@@ -38,7 +56,9 @@ __bt_open(fname, flags, mode, openinfo, dflags)
 	pgno_t ncache;
 	ssize_t nr;
 	int ret;
+#ifdef __KERNEL__
 	mm_segment_t old_fs = get_fs();
+#endif
 
 	t = NULL;
 
@@ -94,7 +114,12 @@ __bt_open(fname, flags, mode, openinfo, dflags)
 		goto err;
 	memset(t, 0, sizeof(BTREE));
 	mutex_init(&t->mutex);
+#ifdef __KERNEL__
 	t->bt_file = NULL;			/* Don't close unopened fd on error. */
+#else
+	t->bt_file = 0;			/* Don't close unopened fd on error. */
+#endif
+
 	t->bt_cmp = b.compare;
 	t->bt_pfx = b.prefix;
 
@@ -126,13 +151,20 @@ __bt_open(fname, flags, mode, openinfo, dflags)
 			goto einval;
 		}
 		
+#ifdef __KERNEL__
 		if (IS_ERR((t->bt_file = filp_open(fname, flags, mode)))) {
 			printk(KERN_ERR "GBFS: open failed (%s)\n", fname);
 			goto err;
 		}
-
+#else
+		if((t->bt_file = open(fname, flags, mode)) <= 0) {
+			fprintf(stderr, "GBFS: open failed (%s)\n", fname);
+			goto err;
+		}
+#endif
 	}
 
+#ifdef __KERNEL__
 	set_fs(KERNEL_DS);
 	if ((ret = vfs_stat(fname, &sb))) {
 		set_fs(old_fs);
@@ -140,8 +172,18 @@ __bt_open(fname, flags, mode, openinfo, dflags)
 		goto err;
 	}
 	set_fs(old_fs);
+#else
+	if (ret = stat(fname, &sb)) {
+		fprintf(stderr, "GBFS: stat failed (%s) errno=%d\n", fname, ret);
+		goto err;
+	}
+#endif
 
+#ifdef __KERNEL__
 	if (sb.size) {
+#else
+	if (sb.st_size) {
+#endif
 		if ((nr = kernel_read(t->bt_file, 0, (char *) &m, sizeof(BTMETA))) < 0)
 			goto err;
 		if (nr != sizeof(BTMETA))
@@ -159,7 +201,11 @@ __bt_open(fname, flags, mode, openinfo, dflags)
 		 * Don't overflow the page offset type.
 		 */
 		if (b.psize == 0) {
+#ifdef __KERNEL__
 			b.psize = sb.blksize;
+#else
+			b.psize = sb.st_blksize;
+#endif
 			if (b.psize < MINPSIZE)
 				b.psize = MINPSIZE;
 			if (b.psize > MAX_PAGE_OFFSET + 1)
@@ -200,7 +246,8 @@ __bt_open(fname, flags, mode, openinfo, dflags)
 	/* Initialize the buffer pool. */
 	if ((t->bt_mp =
 	    mpool_open(fname, t->bt_file, t->bt_psize, ncache)) == NULL) {
-		printk(KERN_ERR "GBFS: mpool open failed\n");
+//		printk(KERN_ERR "GBFS: mpool open failed\n");
+		printk("GBFS: mpool open failed\n");
 		goto err;
 	}
 
@@ -221,8 +268,13 @@ eftype:
 err:	if (t) {
 		if (t->bt_dbp)
 			kfree(t->bt_dbp);
+#ifdef __KERNEL__
 		if (t->bt_file && !IS_ERR(t->bt_file))
 			filp_close(t->bt_file, NULL);
+#else 
+		if (t->bt_file >= 0)
+			close(t->bt_file);
+#endif
 		kfree(t);
 	}
 	return (NULL);

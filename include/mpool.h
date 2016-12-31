@@ -1,6 +1,11 @@
 #ifndef _MPOOL_H_
 #define _MPOOL_H_
+#ifdef __KERNEL__
 #include <linux/fs.h>
+#else
+#include <list.h>
+#endif
+
 /*
  * The memory pool scheme is a simple one.  Each in-memory page is referenced
  * by a bucket which is threaded in up to two of three ways.  All active pages
@@ -32,11 +37,19 @@ typedef struct MPOOL {
 	pgno_t	curcache;		/* current number of cached pages */
 	pgno_t	maxcache;		/* max number of cached pages */
 	u_long	pagesize;		/* file page size */
+#ifdef __KERNEL__
 	struct file *file;			/* file descriptor */
+#else
+	int file;
+#endif
 					/* page in conversion routine */
 } MPOOL;
 
+#ifdef __KERNEL__
 extern MPOOL	*mpool_open (const char *, struct file *, pgno_t, pgno_t);
+#else
+extern MPOOL	*mpool_open (const char *, int, pgno_t, pgno_t);
+#endif
 extern void	 mpool_filter (MPOOL *, void (*)(void *, pgno_t, void *),
 	    void (*)(void *, pgno_t, void *), void *);
 extern void	*mpool_new (MPOOL *, pgno_t *, off_t *, size_t);

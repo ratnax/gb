@@ -1,8 +1,18 @@
+#ifdef __KERNEL__
 #include <linux/slab.h>
+
+#define MIN(a, b) (((a) < (b)) ? (a) : (b))
+#else
+#include <sys/param.h>
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#endif
+
 #include <db.h>
 #include "btree.h"
 
-#define MIN(a, b) (((a) < (b)) ? (a) : (b))
 
 /*
  * Big key/data code.

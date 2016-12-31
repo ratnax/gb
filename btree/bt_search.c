@@ -1,3 +1,10 @@
+#ifdef __KERNEL__
+#else
+#include <sys/types.h>
+
+#include <stdio.h>
+#endif
+
 #include <db.h>
 #include "btree.h"
 

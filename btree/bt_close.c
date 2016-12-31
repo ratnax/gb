@@ -1,5 +1,17 @@
+#ifdef __KERNEL__
 #include<linux/slab.h>
 #include<linux/fs.h>
+#else
+#include <sys/param.h>
+
+#include <errno.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <list.h>
+#endif
+
 #include <db.h>
 #include "btree.h"
 
@@ -19,7 +31,11 @@ __bt_close(dbp)
 	DB *dbp;
 {
 	BTREE *t;
+#ifdef __KERNEL__ 
 	struct file *file;
+#else
+	int file;
+#endif
 
 	t = dbp->internal;
 

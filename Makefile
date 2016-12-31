@@ -22,7 +22,7 @@ gbfs-y +=	btree/bt_close.o \
 			btree/bt_utils.o
 
 gbfs-y +=	db/db.o
-gbfs-y +=	mpool/mpool.o mpool/buddy.o
+gbfs-y +=	mpool/mpool.o mpool/balloc.o
 
 ccflags-y := -Wfatal-errors -I$(src)/include
 

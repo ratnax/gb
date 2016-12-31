@@ -1,4 +1,14 @@
+#ifdef __KERNEL__
 #include <linux/fcntl.h>
+#else
+#include <sys/types.h>
+
+#include <errno.h>
+#include <fcntl.h>
+#include <stddef.h>
+#include <stdio.h>
+#endif
+
 #include <db.h>
 
 DB *

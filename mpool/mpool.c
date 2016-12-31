@@ -1,9 +1,29 @@
+#ifdef __KERNEL__
 #include <linux/slab.h>
+#else
+
+#include <sys/types.h>
+#include <stdint.h>
+#include <sys/param.h>
+#include <sys/queue.h>
+#include <sys/stat.h>
+
+#include <errno.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <list.h>
+#endif
+
 #include <db.h>
 
 #define	__MPOOLINTERFACE_PRIVATE
 #include <mpool.h>
-#include <buddy.h>
+
+extern int mpool_balloc(MPOOL *mp, int order, uint64_t *out_blkno);
+extern int mpool_bfree(MPOOL *mp, uint64_t blkno);
+extern int balloc_init(void);
 
 static BKT *mpool_look (MPOOL *, pgno_t);
 static int  mpool_write (MPOOL *, BKT *);
@@ -17,7 +37,11 @@ static void *__mpool_get(MPOOL *, pgno_t, int, u_int);
 MPOOL *
 mpool_open(fname, file, pagesize, maxcache)
 	const char *fname;
+#ifdef __KERNEL__
 	struct file *file;
+#else
+	int file;
+#endif
 	pgno_t pagesize, maxcache;
 {
 	MPOOL *mp;
@@ -33,7 +57,7 @@ mpool_open(fname, file, pagesize, maxcache)
 	mp->pagesize = pagesize;
 	mp->file = file;
 
-	buddy_init(0);
+	balloc_init();
 	return (mp);
 }
 
@@ -170,12 +194,15 @@ mpool_new(mp, pgnoaddr, offaddr, size)
 	off_t *offaddr;
 	size_t size;
 {
+	int ret;
 	loff_t blk;
 	size_t order;
 
 	for (order = 0; size > (1 << order); order++);
 	
-	blk = buddy_alloc(order);
+	ret = mpool_balloc(mp, order, &blk);
+	if (ret)
+		return NULL;
 
 	*pgnoaddr = blk / mp->pagesize;
 	*offaddr = blk % mp->pagesize;
@@ -191,11 +218,17 @@ mpool_new_pg (mp, pgnoaddr)
 	MPOOL *mp;
 	pgno_t *pgnoaddr;
 {
+	int ret;
 	int order;
+	uint64_t blk;
 
 	for (order = 0; mp->pagesize > (1 << order); order++);
 
-	*pgnoaddr = buddy_alloc(order) / mp->pagesize;
+	ret = mpool_balloc(mp, order, &blk);
+	if (ret) 
+		return NULL;
+
+	*pgnoaddr = blk / mp->pagesize;
 	return __mpool_get(mp, *pgnoaddr, 1, MPOOL_NEW);
 }
 
@@ -264,7 +297,7 @@ int mpool_free_pg(mp, page)
 
 	for (order = 0; mp->pagesize > (1 << order); order++);
 
-	buddy_free(bp->pgno * mp->pagesize, order);
+	mpool_bfree(mp, bp->pgno * mp->pagesize);
 	return 0;
 }
 

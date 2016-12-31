@@ -1,4 +1,14 @@
+#ifdef __KERNEL__
 #include<asm/string.h>
+#else
+#include <sys/types.h>
+
+#include <errno.h>
+#include <stdio.h>
+#include <string.h>
+#endif
+
+
 #include <db.h>
 #include "btree.h"
 

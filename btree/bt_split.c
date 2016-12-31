@@ -1,4 +1,14 @@
+#ifdef __KERNEL__
 #include <linux/slab.h>
+#else
+#include <sys/types.h>
+
+#include <limits.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#endif
+
 #include <db.h>
 #include "btree.h"
 

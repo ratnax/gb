@@ -3,11 +3,11 @@
 LIBDB=	libdb.a
 
 OBJ1=
-OBJ2=	bt_close.o bt_conv.o bt_debug.o bt_delete.o bt_get.o bt_open.o \
+OBJ2=	bt_close.o bt_delete.o bt_get.o bt_open.o \
 	bt_overflow.o bt_page.o bt_put.o bt_search.o bt_split.o \
 	bt_utils.o
 OBJ3=	db.o
-OBJ4=	mpool.o buddy.o
+OBJ4=	mpool.o balloc.o
 OBJ5=
 
 #MISC=	snprintf.o
@@ -27,10 +27,6 @@ CL=    ${CC} -g -c -D__DBINTERFACE_PRIVATE ${OORG} -I. -Iinclude
 
 bt_close.o: btree/bt_close.c
 	${CL} -Ibtree btree/bt_close.c
-bt_conv.o: btree/bt_conv.c
-	${CL} -Ibtree btree/bt_conv.c
-bt_debug.o: btree/bt_debug.c
-	${CL} -Ibtree btree/bt_debug.c
 bt_delete.o: btree/bt_delete.c
 	${CL} -Ibtree btree/bt_delete.c
 bt_get.o: btree/bt_get.c
@@ -57,8 +53,11 @@ db.o: db/db.c
 
 mpool.o: mpool/mpool.c
 	${CL} -Impool mpool/mpool.c
-buddy.o: mpool/buddy.c
-	${CL} -Impool mpool/buddy.c
+#buddy.o: mpool/buddy.c
+#	${CL} -Impool mpool/buddy.c
+balloc.o: mpool/balloc.c
+	${CL} -Impool mpool/balloc.c
+
 
 
 memmove.o:

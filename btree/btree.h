@@ -178,7 +178,11 @@ typedef struct _btree {
 
 	EPG	  bt_cur;		/* current (pinned) page */
 	PAGE	 *bt_pinned;		/* page pinned across calls */
-	struct mutex mutex;
+#ifdef __KERNEL__
+   	struct mutex mutex;
+#else
+	pthread_mutex_t mutex;
+#endif
 
 #define	BT_PUSH(t, p, i) {						\
 	t->bt_sp->pgno = p; 						\
@@ -193,7 +197,11 @@ typedef struct _btree {
 	DBT	  bt_rkey;		/* returned key */
 	DBT	  bt_rdata;		/* returned data */
 
+#ifdef __KERNEL__
 	struct file *bt_file;		/* tree file descriptor */
+#else
+	int bt_file;
+#endif
 
 	u_int32_t bt_psize;		/* page size */
 	indx_t	  bt_ovflsize;		/* cut-off for key/data overflow */
