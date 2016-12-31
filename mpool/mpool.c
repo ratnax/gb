@@ -50,7 +50,7 @@ mpool_open(fname, file, pagesize, maxcache)
 	INIT_LIST_HEAD(&mp->lqh);
 	for (entry = 0; entry < HASHSIZE; ++entry)
 		INIT_HLIST_HEAD(&mp->hqh[entry]);
-	mp->maxcache = 1; //maxcache;
+	mp->maxcache = maxcache;
 	mp->pagesize = pagesize;
 	mp->file = file;
 
