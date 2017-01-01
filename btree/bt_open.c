@@ -180,9 +180,9 @@ __bt_open(fname, flags, mode, openinfo, dflags)
 #endif
 
 #ifdef __KERNEL__
-	if (sb.size) {
+	if (0 && sb.size) {
 #else
-	if (sb.st_size > 40 * 4 * 1024) {
+	if (0 && sb.st_size > 40 * 4 * 1024) {
 #endif
 		if ((nr = kernel_read(t->bt_file, P_META * 4096, (char *) &m, sizeof(BTMETA))) < 0)
 			goto err;
@@ -257,7 +257,8 @@ __bt_open(fname, flags, mode, openinfo, dflags)
 		goto err;
 	}
 		
-	printk(KERN_ERR "GBFS: Btree open successfull\n");
+	printk(KERN_ERR "GBFS: Btree open successfull with block size %d.\n", 
+			t->bt_psize);
 
 	return (dbp);
 

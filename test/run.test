@@ -127,6 +127,8 @@ test4()
 			printf("r\nkkey1\nr\nkkey2\n");
 		}
 	}' > $TMP1
+	echo $PROG btree $TMP1
+
 	$PROG btree $TMP1
 	# No explicit test for success.
 }
@@ -150,7 +152,9 @@ test5()
 			echo g
 			echo k$i
 		done > $TMP2
-		$PROG -i psize=512 -o $TMP3 $type $TMP2
+
+		echo $PROG "-i psize=512 -o" $TMP3 $type $TMP2
+		$PROG -i psize=4096 -o $TMP3 $type $TMP2
 		if (cmp -s $TMP1 $TMP3) ; then :
 		else
 			echo "test5: type $type: failed"
