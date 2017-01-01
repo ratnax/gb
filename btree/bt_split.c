@@ -15,7 +15,6 @@
 static int	 bt_broot (BTREE *, PAGE *, PAGE *, PAGE *);
 static PAGE	*bt_page
 		    (BTREE *, PAGE *, PAGE **, PAGE **, indx_t *, size_t);
-static int	 bt_preserve (BTREE *, pgno_t);
 static PAGE	*bt_psplit
 		    (BTREE *, PAGE *, PAGE *, PAGE *, indx_t *, size_t);
 static PAGE	*bt_root
@@ -140,8 +139,8 @@ __bt_split(t, sp, key, data, flags, ilen, argskip)
 		case P_BLEAF:
 			bl = GETBLEAF(rchild, 0);
 			nbytes = NBINTERNAL(bl->ksize);
-			if (t->bt_pfx && !(bl->flags & P_BIGKEY) &&
-			    (h->prevpg != P_INVALID || skip > 1)) {
+			if (t->bt_pfx && 
+			    (!__bt_isleftmost(t) || skip > 1)) {
 				tbl = GETBLEAF(lchild, NEXTINDEX(lchild) - 1);
 				a.size = tbl->ksize;
 				a.data = tbl->bytes;
@@ -189,11 +188,8 @@ __bt_split(t, sp, key, data, flags, ilen, argskip)
 			h->linp[skip] = h->upper -= nbytes;
 			dest = (char *)h + h->linp[skip];
 			WR_BINTERNAL(dest, nksize ? nksize : bl->ksize,
-			    rchild->pgno, bl->flags & P_BIGKEY);
+			    rchild->pgno, 0);
 			memmove(dest, bl->bytes, nksize ? nksize : bl->ksize);
-			if (bl->flags & P_BIGKEY &&
-			    bt_preserve(t, *(pgno_t *)bl->bytes) == RET_ERROR)
-				goto err1;
 			break;
 		default:
 			BUG();	
@@ -266,8 +262,6 @@ bt_page(t, h, lp, rp, skip, ilen)
 	r->pgno = npg;
 	r->lower = BTDATAOFF;
 	r->upper = t->bt_psize;
-	r->nextpg = h->nextpg;
-	r->prevpg = h->pgno;
 	r->flags = h->flags & P_TYPE;
 
 	/*
@@ -280,8 +274,7 @@ bt_page(t, h, lp, rp, skip, ilen)
 	 * reverse sorted data, that is, split the tree left, but it's not.
 	 * Don't even try.
 	 */
-	if (h->nextpg == P_INVALID && *skip == NEXTINDEX(h)) {
-		h->nextpg = r->pgno;
+	if (__bt_isrightmost(t) && *skip == NEXTINDEX(h)) {
 		r->lower = BTDATAOFF + sizeof(indx_t);
 		*skip = 0;
 		*lp = h;
@@ -298,22 +291,9 @@ bt_page(t, h, lp, rp, skip, ilen)
 	memset(l, 0xff, t->bt_psize);
 #endif
 	l->pgno = h->pgno;
-	l->nextpg = r->pgno;
-	l->prevpg = h->prevpg;
 	l->lower = BTDATAOFF;
 	l->upper = t->bt_psize;
-	l->flags = h->flags & P_TYPE;
-
-	/* Fix up the previous pointer of the page after the split page. */
-	if (h->nextpg != P_INVALID) {
-		if ((tp = mpool_get_pg(t->bt_mp, h->nextpg, 0)) == NULL) {
-			kfree(l);
-			/* XXX mpool_free(t->bt_mp, r->pgno); */
-			return (NULL);
-		}
-		tp->prevpg = r->pgno;
-		mpool_put(t->bt_mp, tp, MPOOL_DIRTY);
-	}
+	l->flags = h->flags & P_TYPE; 
 
 	/*
 	 * Split right.  The key/data pairs aren't sorted in the btree page so
@@ -365,9 +345,6 @@ bt_root(t, h, lp, rp, skip, ilen)
 		return (NULL);
 	l->pgno = lnpg;
 	r->pgno = rnpg;
-	l->nextpg = r->pgno;
-	r->prevpg = l->pgno;
-	l->prevpg = r->nextpg = P_INVALID;
 	l->lower = r->lower = BTDATAOFF;
 	l->upper = r->upper = t->bt_psize;
 	l->flags = r->flags = h->flags & P_TYPE;
@@ -423,14 +400,6 @@ bt_broot(t, h, l, r)
 		dest = (char *)h + h->upper;
 		WR_BINTERNAL(dest, bl->ksize, r->pgno, 0);
 		memmove(dest, bl->bytes, bl->ksize);
-
-		/*
-		 * If the key is on an overflow page, mark the overflow chain
-		 * so it isn't deleted when the leaf copy of the key is deleted.
-		 */
-		if (bl->flags & P_BIGKEY &&
-		    bt_preserve(t, *(pgno_t *)bl->bytes) == RET_ERROR)
-			return (RET_ERROR);
 		break;
 	case P_BINTERNAL:
 		bi = GETBINTERNAL(r, 0);
@@ -482,7 +451,6 @@ bt_psplit(t, h, l, r, pskip, ilen)
 	void *src;
 	indx_t full, half, nxt, off, skip, top, used;
 	u_int32_t nbytes;
-	int bigkeycnt, isbigkey;
 
 	/*
 	 * Split the data to the left and right pages.  Leave the skip index
@@ -490,7 +458,6 @@ bt_psplit(t, h, l, r, pskip, ilen)
 	 * key.  This makes internal page processing faster and can save
 	 * space as overflow keys used by internal pages are never deleted.
 	 */
-	bigkeycnt = 0;
 	skip = *pskip;
 	full = t->bt_psize - BTDATAOFF;
 	half = full / 2;
@@ -498,18 +465,15 @@ bt_psplit(t, h, l, r, pskip, ilen)
 	for (nxt = off = 0, top = NEXTINDEX(h); nxt < top; ++off) {
 		if (skip == off) {
 			nbytes = ilen;
-			isbigkey = 0;		/* XXX: not really known. */
 		} else
 			switch (h->flags & P_TYPE) {
 			case P_BINTERNAL:
 				src = bi = GETBINTERNAL(h, nxt);
 				nbytes = NBINTERNAL(bi->ksize);
-				isbigkey = bi->flags & P_BIGKEY;
 				break;
 			case P_BLEAF:
 				src = bl = GETBLEAF(h, nxt);
 				nbytes = NBLEAF(bl);
-				isbigkey = bl->flags & P_BIGKEY;
 				break;
 			default:
 				BUG();
@@ -535,12 +499,8 @@ bt_psplit(t, h, l, r, pskip, ilen)
 		}
 
 		used += nbytes + sizeof(indx_t);
-		if (used >= half) {
-			if (!isbigkey || bigkeycnt == 3)
-				break;
-			else
-				++bigkeycnt;
-		}
+		if (used >= half) 
+			break;
 	}
 
 	/*
@@ -590,33 +550,4 @@ bt_psplit(t, h, l, r, pskip, ilen)
 		r->lower += sizeof(indx_t);
 
 	return (rval);
-}
-
-/*
- * BT_PRESERVE -- Mark a chain of pages as used by an internal node.
- *
- * Chains of indirect blocks pointed to by leaf nodes get reclaimed when the
- * record that references them gets deleted.  Chains pointed to by internal
- * pages never get deleted.  This routine marks a chain as pointed to by an
- * internal page.
- *
- * Parameters:
- *	t:	tree
- *	pg:	page number of first page in the chain.
- *
- * Returns:
- *	RET_SUCCESS, RET_ERROR.
- */
-static int
-bt_preserve(t, pg)
-	BTREE *t;
-	pgno_t pg;
-{
-	PAGE *h;
-
-	if ((h = mpool_get_pg(t->bt_mp, pg, 0)) == NULL)
-		return (RET_ERROR);
-	h->flags |= P_PRESERVE;
-	mpool_put(t->bt_mp, h, MPOOL_DIRTY);
-	return (RET_SUCCESS);
 }

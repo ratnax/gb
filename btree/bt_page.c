@@ -27,7 +27,7 @@ __bt_free(t, h)
 	BTREE *t;
 	PAGE *h;
 {
-	return mpool_free_pg(t->bt_mp, h);
+	return mpool_free(t->bt_mp, h);
 }
 
 /*
@@ -47,4 +47,21 @@ __bt_new(t, npg)
 	pgno_t *npg;
 {
 	return (mpool_new_pg(t->bt_mp, npg));
+}
+
+void *
+__bt_data_new(t, npg, size)
+	BTREE *t;
+	pgno_t *npg;
+	size_t size;
+{
+	return (mpool_new(t->bt_mp, npg, size));
+}
+
+int 
+__bt_data_free(t, h)
+	BTREE *t;
+	void *h;
+{
+	return mpool_free(t->bt_mp, h);
 }

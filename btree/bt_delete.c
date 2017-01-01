@@ -14,7 +14,6 @@
 
 static int __bt_bdelete (BTREE *, const DBT *);
 static int __bt_pdelete (BTREE *, PAGE *);
-static int __bt_relink (BTREE *, PAGE *);
 
 /*
  * __bt_delete
@@ -73,8 +72,9 @@ __bt_bdelete(t, key)
 	deleted = 0;
 
 	/* Find any matching record; __bt_search pins the page. */
-loop:	if ((e = __bt_search(t, key, &exact)) == NULL)
+	if ((e = __bt_search(t, key, &exact)) == NULL)
 		return (deleted ? RET_SUCCESS : RET_ERROR);
+
 	if (!exact) {
 		mpool_put(t->bt_mp, e->page, 0);
 		return (deleted ? RET_SUCCESS : RET_SPECIAL);
@@ -87,48 +87,16 @@ loop:	if ((e = __bt_search(t, key, &exact)) == NULL)
 	 */
 	redo = 0;
 	h = e->page;
-	do {
-		if (__bt_dleaf(t, key, h, e->index)) {
-			mpool_put(t->bt_mp, h, 0);
-			return (RET_ERROR);
-		}
-		if (NEXTINDEX(h) == 0) {
-			if (__bt_pdelete(t, h))
-				return (RET_ERROR);
-		} else
-			mpool_put(t->bt_mp, h, MPOOL_DIRTY);
-		return (RET_SUCCESS);
-		deleted = 1;
-	} while (e->index < NEXTINDEX(h) && __bt_cmp(t, key, e) == 0);
 
-	/* Check for right-hand edge of the page. */
-	if (e->index == NEXTINDEX(h))
-		redo = 1;
-
-	/* Delete from the key to the beginning of the page. */
-	while (e->index-- > 0) {
-		if (__bt_cmp(t, key, e) != 0)
-			break;
-		if (__bt_dleaf(t, key, h, e->index) == RET_ERROR) {
-			mpool_put(t->bt_mp, h, 0);
-			return (RET_ERROR);
-		}
-		if (e->index == 0)
-			redo = 1;
+	if (__bt_dleaf(t, key, h, e->index)) {
+		mpool_put(t->bt_mp, h, 0);
+		return (RET_ERROR);
 	}
-
-	/* Check for an empty page. */
 	if (NEXTINDEX(h) == 0) {
 		if (__bt_pdelete(t, h))
 			return (RET_ERROR);
-		goto loop;
-	}
-
-	/* Put the page. */
-	mpool_put(t->bt_mp, h, MPOOL_DIRTY);
-
-	if (redo)
-		goto loop;
+	} else
+		mpool_put(t->bt_mp, h, MPOOL_DIRTY);
 	return (RET_SUCCESS);
 }
 
@@ -178,13 +146,6 @@ __bt_pdelete(t, h)
 		index = parent->index;
 		bi = GETBINTERNAL(pg, index);
 
-		/* Free any overflow pages. */
-		if (bi->flags & P_BIGKEY &&
-		    __ovfl_delete(t, bi->bytes) == RET_ERROR) {
-			mpool_put(t->bt_mp, pg, 0);
-			return (RET_ERROR);
-		}
-
 		/*
 		 * Free the parent if it has only the one key and it's not the
 		 * root page. If it's the rootpage, turn it back into an empty
@@ -196,7 +157,7 @@ __bt_pdelete(t, h)
 				pg->upper = t->bt_psize;
 				pg->flags = P_BLEAF;
 			} else {
-				if (__bt_relink(t, pg) || __bt_free(t, pg))
+				if (__bt_free(t, pg))
 					return (RET_ERROR);
 				continue;
 			}
@@ -226,7 +187,7 @@ __bt_pdelete(t, h)
 		mpool_put(t->bt_mp, h, MPOOL_DIRTY);
 		return (RET_SUCCESS);
 	}
-	return (__bt_relink(t, h) || __bt_free(t, h));
+	return (__bt_free(t, h));
 }
 
 /*
@@ -257,8 +218,6 @@ __bt_dleaf(t, key, h, index)
 
 	/* If the entry uses overflow pages, make them available for reuse. */
 	to = bl = GETBLEAF(h, index);
-	if (bl->flags & P_BIGKEY && __ovfl_delete(t, bl->bytes) == RET_ERROR)
-		return (RET_ERROR);
 	if (bl->flags & P_BIGDATA &&
 	    __ovfl_delete(t, bl->bytes + bl->ksize) == RET_ERROR)
 		return (RET_ERROR);
@@ -279,34 +238,4 @@ __bt_dleaf(t, key, h, index)
 	h->lower -= sizeof(indx_t);
 
 	return (RET_SUCCESS);
-}
-
-/*
- * __bt_relink --
- *	Link around a deleted page.
- *
- * Parameters:
- *	t:	tree
- *	h:	page to be deleted
- */
-static int
-__bt_relink(t, h)
-	BTREE *t;
-	PAGE *h;
-{
-	PAGE *pg;
-
-	if (h->nextpg != P_INVALID) {
-		if ((pg = mpool_get_pg(t->bt_mp, h->nextpg, 0)) == NULL)
-			return (RET_ERROR);
-		pg->prevpg = h->prevpg;
-		mpool_put(t->bt_mp, pg, MPOOL_DIRTY);
-	}
-	if (h->prevpg != P_INVALID) {
-		if ((pg = mpool_get_pg(t->bt_mp, h->prevpg, 0)) == NULL)
-			return (RET_ERROR);
-		pg->nextpg = h->nextpg;
-		mpool_put(t->bt_mp, pg, MPOOL_DIRTY);
-	}
-	return (0);
 }

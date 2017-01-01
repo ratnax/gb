@@ -32,14 +32,14 @@ __bt_put(dbp, key, data, flags)
 	u_int flags;
 {
 	BTREE *t;
-	DBT tkey, tdata;
+	DBT tdata;
 	EPG *e;
 	PAGE *h;
 	indx_t index, nxtindex;
 	pgno_t pg;
 	u_int32_t nbytes;
 	int dflags, exact, status;
-	char *dest, db[NOVFLSIZE], kb[NOVFLSIZE];
+	char *dest, db[NOVFLSIZE];
 
 	t = dbp->internal;
 
@@ -60,18 +60,9 @@ __bt_put(dbp, key, data, flags)
 	 */
 	dflags = 0;
 	if (key->size + data->size > t->bt_ovflsize) {
-		if (key->size > t->bt_ovflsize) {
-storekey:		if (__ovfl_put(t, key, &pg) == RET_ERROR)
-				return (RET_ERROR);
-			tkey.data = kb;
-			tkey.size = NOVFLSIZE;
-			memmove(kb, &pg, sizeof(pgno_t));
-			memmove(kb + sizeof(pgno_t),
-			    &key->size, sizeof(u_int32_t));
-			dflags |= P_BIGKEY;
-			key = &tkey;
-		}
-		if (key->size + data->size > t->bt_ovflsize) {
+		//TODO
+		// check for max key size;
+		if (data->size > t->bt_ovflsize) {
 			if (__ovfl_put(t, data, &pg) == RET_ERROR)
 				return (RET_ERROR);
 			tdata.data = db;
@@ -82,8 +73,6 @@ storekey:		if (__ovfl_put(t, key, &pg) == RET_ERROR)
 			dflags |= P_BIGDATA;
 			data = &tdata;
 		}
-		if (key->size + data->size > t->bt_ovflsize)
-			goto storekey;
 	}
 
 	/*

@@ -51,9 +51,8 @@ __ovfl_get(t, p, ssz, buf, bufsz)
 	void **buf;
 	size_t *bufsz;
 {
-	PAGE *h;
+	void *h;
 	pgno_t pg;
-	size_t nb, plen;
 	u_int32_t sz;
 
 	memmove(&pg, p, sizeof(pgno_t));
@@ -64,6 +63,7 @@ __ovfl_get(t, p, ssz, buf, bufsz)
 	if (pg == P_INVALID || sz == 0)
 		abort();
 #endif
+
 	/* Make the buffer bigger as necessary. */
 	if (*bufsz < sz) {
 		*buf = (char *)(*buf == NULL ? kmalloc(sz, GFP_KERNEL) : 
@@ -73,24 +73,11 @@ __ovfl_get(t, p, ssz, buf, bufsz)
 		*bufsz = sz;
 	}
 
-	/*
-	 * Step through the linked list of pages, copying the data on each one
-	 * into the buffer.  Never copy more than the data's length.
-	 */
-	plen = t->bt_psize - BTDATAOFF;
-	//for (p = *buf;; p = (char *)p + nb, pg = h->nextpg) {
-	for (p = *buf;; p = (char *)p + nb) {
-		if ((h = mpool_get_pg(t->bt_mp, pg, 0)) == NULL)
-			return (RET_ERROR);
+	if ((h = mpool_get(t->bt_mp, pg, sz, 0)) == NULL)
+		return (RET_ERROR);
 
-		nb = MIN(sz, plen);
-		memmove(p, (char *)h + BTDATAOFF, nb);
-		pg = h->nextpg;
-		mpool_put(t->bt_mp, h, 0);
-
-		if ((sz -= nb) == 0)
-			break;
-	}
+	memmove(*buf, h, sz);
+	mpool_put(t->bt_mp, h, 0);
 	return (RET_SUCCESS);
 }
 
@@ -111,41 +98,13 @@ __ovfl_put(t, dbt, pg)
 	const DBT *dbt;
 	pgno_t *pg;
 {
-	PAGE *h, *last;
 	void *p;
-	pgno_t npg;
-	size_t nb, plen;
-	u_int32_t sz;
 
-	/*
-	 * Allocate pages and copy the key/data record into them.  Store the
-	 * number of the first page in the chain.
-	 */
-	plen = t->bt_psize - BTDATAOFF;
-	for (last = NULL, p = dbt->data, sz = dbt->size;;
-	    p = (char *)p + plen, last = h) {
-		if ((h = __bt_new(t, &npg)) == NULL)
-			return (RET_ERROR);
+	if ((p = __bt_data_new(t, pg, dbt->size)) == NULL)
+		return (RET_ERROR);
 
-		h->pgno = npg;
-		h->nextpg = h->prevpg = P_INVALID;
-		h->flags = P_OVERFLOW;
-		h->lower = h->upper = 0;
-
-		nb = MIN(sz, plen);
-		memmove((char *)h + BTDATAOFF, p, nb);
-
-		if (last) {
-			last->nextpg = h->pgno;
-			mpool_put(t->bt_mp, last, MPOOL_DIRTY);
-		} else
-			*pg = h->pgno;
-
-		if ((sz -= nb) == 0) {
-			mpool_put(t->bt_mp, h, MPOOL_DIRTY);
-			break;
-		}
-	}
+	memmove(p, dbt->data, dbt->size);
+	mpool_put(t->bt_mp, p, MPOOL_DIRTY);
 	return (RET_SUCCESS);
 }
 
@@ -164,9 +123,8 @@ __ovfl_delete(t, p)
 	BTREE *t;
 	void *p;
 {
-	PAGE *h;
+	void *h;
 	pgno_t pg;
-	size_t plen;
 	u_int32_t sz;
 
 	memmove(&pg, p, sizeof(pgno_t));
@@ -176,23 +134,9 @@ __ovfl_delete(t, p)
 	if (pg == P_INVALID || sz == 0)
 		abort();
 #endif
-	if ((h = mpool_get_pg(t->bt_mp, pg, 0)) == NULL)
+	if ((h = mpool_get(t->bt_mp, pg, sz, 0)) == NULL)
 		return (RET_ERROR);
 
-	/* Don't delete chains used by internal pages. */
-	if (h->flags & P_PRESERVE) {
-		mpool_put(t->bt_mp, h, 0);
-		return (RET_SUCCESS);
-	}
-
-	/* Step through the chain, calling the free routine for each page. */
-	for (plen = t->bt_psize - BTDATAOFF;; sz -= plen) {
-		pg = h->nextpg;
-		__bt_free(t, h);
-		if (sz <= plen)
-			break;
-		if ((h = mpool_get_pg(t->bt_mp, pg, 0)) == NULL)
-			return (RET_ERROR);
-	}
+	__bt_data_free(t, h);
 	return (RET_SUCCESS);
 }

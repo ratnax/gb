@@ -53,13 +53,16 @@ extern MPOOL	*mpool_open (const char *, int, pgno_t, pgno_t);
 #endif
 extern void	 mpool_filter (MPOOL *, void (*)(void *, pgno_t, void *),
 	    void (*)(void *, pgno_t, void *), void *);
-extern void	*mpool_new (MPOOL *, pgno_t *, off_t *, size_t);
+
+extern void	*mpool_new (MPOOL *, pgno_t *, size_t);
+extern void	*mpool_get (MPOOL *, pgno_t, size_t, u_int);
+
 extern void	*mpool_new_pg (MPOOL *, pgno_t *);
-extern void	*mpool_get (MPOOL *, loff_t, size_t, pgno_t *, off_t *, u_int);
 extern void	*mpool_get_pg (MPOOL *, pgno_t , u_int);
 
 extern int	mpool_put (MPOOL *, void *, u_int);
-extern int	mpool_free_pg (MPOOL *, void *);
+extern int	mpool_free (MPOOL *, void *);
+
 extern int	mpool_sync (MPOOL *);
 extern int	mpool_close (MPOOL *);
 #endif

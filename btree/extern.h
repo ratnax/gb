@@ -3,6 +3,8 @@
 DB * __bt_open(const char *, int, int, const BTREEINFO *, int);
 int	 __bt_close (DB *);
 int	 __bt_cmp (BTREE *, const DBT *, EPG *);
+int  __bt_isleftmost (BTREE *);
+int  __bt_isrightmost(BTREE *);
 int	 __bt_defcmp (const DBT *, const DBT *);
 size_t	 __bt_defpfx (const DBT *, const DBT *);
 int	 __bt_delete (const DB *, const DBT *, u_int);
@@ -11,6 +13,8 @@ int	 __bt_fd (const DB *);
 int	 __bt_free (BTREE *, PAGE *);
 int	 __bt_get (const DB *, const DBT *, DBT *, u_int);
 PAGE	*__bt_new (BTREE *, pgno_t *);
+void 	*__bt_data_new (BTREE *, pgno_t *, size_t);
+int	__bt_data_free(BTREE *, void *);
 void	 __bt_pgin (void *, pgno_t, void *);
 void	 __bt_pgout (void *, pgno_t, void *);
 int	 __bt_push (BTREE *, pgno_t, int);

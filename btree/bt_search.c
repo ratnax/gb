@@ -32,6 +32,7 @@ __bt_search(t, key, exactp)
 	indx_t base, index, lim;
 	pgno_t pg;
 	int cmp;
+	u_int8_t flags;
 
 	BT_CLR(t);
 	for (pg = P_ROOT;;) {
@@ -78,7 +79,14 @@ __bt_search(t, key, exactp)
 		 */
 		index = base ? base - 1 : base;
 
-next:		BT_PUSH(t, h->pgno, index);
+next:	
+		flags = 0;
+		if (__bt_isleftmost(t) && index == 0)
+			flags |= P_LMOST;
+		if (__bt_isrightmost(t) && index == NEXTINDEX(h) - 1)
+			flags |= P_RMOST;
+
+		BT_PUSH(t, h->pgno, index, flags);
 		pg = GETBINTERNAL(h, index)->pgno;
 		mpool_put(t->bt_mp, h, 0);
 	}

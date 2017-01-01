@@ -29,7 +29,12 @@ int mpool_balloc(MPOOL *mp, int order, uint64_t *out_blk)
 	unsigned long unit, pno, bit;
 	blk_unit_page_t *p;
 	blk_unit_t *bu;
-	uint64_t *map = maps[order - MIN_UNIT_SHFT]; 
+	uint64_t *map;
+
+	if (order < MIN_UNIT_SHFT)
+		order = MIN_UNIT_SHFT;
+   
+	map	= maps[order - MIN_UNIT_SHFT]; 
 	
 	unit = find_next_bit((unsigned long*) map, TOTAL_UNITS, 0);
 
@@ -105,6 +110,22 @@ int mpool_bfree(MPOOL *mp, uint64_t blk)
 
 	mpool_put(mp, (void *) p, MPOOL_DIRTY);
 	return 0;
+}
+
+uint64_t mpool_blk_size(MPOOL *mp, uint64_t blk)
+{
+	unsigned long unit = blk >> MAX_UNIT_SHFT;
+	unsigned long pno = unit / 28;
+	blk_unit_page_t *p;
+	blk_unit_t *bu;
+
+	p = (blk_unit_page_t *) mpool_get_pg(mp, pno + 2, 0);
+	if (!p)
+		return -EIO;
+	
+   	bu = &p->blk_units[unit % 28];
+	mpool_put(mp, p, 0);
+	return 1UL << (bu->type + MIN_UNIT_SHFT);
 }
 
 int mpool_alloced(MPOOL *mp, uint64_t blk)

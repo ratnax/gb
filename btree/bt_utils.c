@@ -14,6 +14,24 @@
 #include "btree.h"
 
 
+int
+__bt_isleftmost(t)
+	BTREE *t;
+{
+	EPGNO *e = BT_TOP(t);
+
+	return (!e || (e->flags & P_LMOST));
+}
+
+int
+__bt_isrightmost(t)
+	BTREE *t;
+{
+	EPGNO *e = BT_TOP(t);
+
+	return (!e || (e->flags & P_LMOST));
+}
+
 /*
  * __bt_ret --
  *	Build return key/data pair.
@@ -50,12 +68,7 @@ __bt_ret(t, e, key, rkey, data, rdata, copy)
 	if (key == NULL)
 		goto dataonly;
 
-	if (bl->flags & P_BIGKEY) {
-		if (__ovfl_get(t, bl->bytes,
-		    &key->size, &rkey->data, &rkey->size))
-			return (RET_ERROR);
-		key->data = rkey->data;
-	} else if (copy) {
+	if (copy) {
 		if (bl->ksize > rkey->size) {
 			p = (void *)(rkey->data == NULL ?
 			    kmalloc(bl->ksize, GFP_KERNEL) : 
@@ -127,7 +140,6 @@ __bt_cmp(t, k1, e)
 	BLEAF *bl;
 	DBT k2;
 	PAGE *h;
-	void *bigkey;
 
 	/*
 	 * The left-most key on internal pages, at any level of the tree, is
@@ -137,33 +149,17 @@ __bt_cmp(t, k1, e)
 	 * anything we've yet seen.
 	 */
 	h = e->page;
-	if (e->index == 0 && h->prevpg == P_INVALID && !(h->flags & P_BLEAF))
+	if (e->index == 0 && __bt_isleftmost(t) && !(h->flags & P_BLEAF))
 		return (1);
 
-	bigkey = NULL;
 	if (h->flags & P_BLEAF) {
 		bl = GETBLEAF(h, e->index);
-		if (bl->flags & P_BIGKEY)
-			bigkey = bl->bytes;
-		else {
-			k2.data = bl->bytes;
-			k2.size = bl->ksize;
-		}
+		k2.data = bl->bytes;
+		k2.size = bl->ksize;
 	} else {
 		bi = GETBINTERNAL(h, e->index);
-		if (bi->flags & P_BIGKEY)
-			bigkey = bi->bytes;
-		else {
-			k2.data = bi->bytes;
-			k2.size = bi->ksize;
-		}
-	}
-
-	if (bigkey) {
-		if (__ovfl_get(t, bigkey,
-		    &k2.size, &t->bt_rdata.data, &t->bt_rdata.size))
-			return (RET_ERROR);
-		k2.data = t->bt_rdata.data;
+		k2.data = bi->bytes;
+		k2.size = bi->ksize;
 	}
 	return ((*t->bt_cmp)(k1, &k2));
 }

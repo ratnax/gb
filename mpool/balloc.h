@@ -50,5 +50,7 @@ typedef union blk_unit_page_t {
 extern int mpool_balloc(MPOOL *mp, int order, uint64_t *out_blkno);
 extern int mpool_bfree(MPOOL *mp, uint64_t blkno);
 extern int mpool_alloced(MPOOL *mp, uint64_t blk);
+extern uint64_t mpool_blk_size(MPOOL *mp, uint64_t blk);
+
 extern int balloc_init(MPOOL *mp);
 #endif

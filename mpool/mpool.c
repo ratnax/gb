@@ -130,7 +130,8 @@ __mpool_get(mp, pgno, npgs, flags)
 	int nr;
 
 	if (pgno >= 40 && !(flags & MPOOL_NEW) &&
-		!mpool_alloced(mp, pgno * mp->pagesize))
+		!mpool_alloced(mp, pgno * mp->pagesize) &&
+		mpool_blk_size(mp, pgno * mp->pagesize) != npgs * mp->pagesize)
 		return NULL;
 
 	/* Check for a page that is cached. */
@@ -139,7 +140,9 @@ __mpool_get(mp, pgno, npgs, flags)
 			printk(KERN_ERR "mpool_get: page %d already pinned\n", bp->pgno);
 			BUG();
 		}
-		BUG_ON(bp->npgs != npgs);
+		// BUG_ON(bp->npgs != npgs);
+		BUG_ON(bp->npgs != npgs && bp->flags & MPOOL_DIRTY);
+		bp->npgs = npgs;
 		/*
 		 * Move the page to the head of the hash chain and the tail
 		 * of the lru chain.
@@ -196,10 +199,9 @@ __mpool_get(mp, pgno, npgs, flags)
  *	Get a new page of memory.
  */
 void *
-mpool_new(mp, pgnoaddr, offaddr, size)
+mpool_new(mp, pgnoaddr, size)
 	MPOOL *mp;
 	pgno_t *pgnoaddr;
-	off_t *offaddr;
 	size_t size;
 {
 	int ret;
@@ -213,13 +215,35 @@ mpool_new(mp, pgnoaddr, offaddr, size)
 		return NULL;
 
 	*pgnoaddr = blk / mp->pagesize;
-	*offaddr = blk % mp->pagesize;
-
-
 	return __mpool_get(mp, blk / mp->pagesize, 
 			((1 << order) / mp->pagesize) ? : 1, MPOOL_NEW);
 }
 
+
+
+void *
+mpool_get (mp, pgno, size, flags)
+	MPOOL *mp;
+	pgno_t pgno;
+	size_t size;
+	u_int flags;			
+{
+	int order;
+
+	for (order = 0; size > (1 << order); order++);
+	
+	return __mpool_get(mp, pgno,
+			((1 << order) / mp->pagesize) ? : 1, 0);
+}
+
+void *
+mpool_get_pg(mp, pgno, flags)
+	MPOOL *mp;
+	pgno_t pgno;
+	u_int flags;		
+{
+	return __mpool_get(mp, pgno, 1, flags);
+}
 
 void *
 mpool_new_pg (mp, pgnoaddr)
@@ -250,37 +274,6 @@ mpool_new_pg (mp, pgnoaddr)
 	return __mpool_get(mp, *pgnoaddr, 1, MPOOL_NEW);
 }
 
-
-void *
-mpool_get(mp, blk, size, pgnoaddr, offaddr, flags)
-	MPOOL *mp;
-	loff_t blk;
-	size_t size;
-	pgno_t *pgnoaddr;
-	off_t *offaddr;
-	u_int flags;			
-{
-	int order;
-
-	for (order = 0; size > (1 << order); order++);
-	
-	*pgnoaddr = blk / mp->pagesize;
-	*offaddr = blk % mp->pagesize;
-
-	return __mpool_get(mp, blk / mp->pagesize, 
-			((1 << order) / mp->pagesize) ? : 1, 0);
-}
-
-void *
-mpool_get_pg(mp, pgno, flags)
-	MPOOL *mp;
-	pgno_t pgno;
-	u_int flags;		
-{
-	return __mpool_get(mp, pgno, 1, flags);
-}
-
-
 /*
  * mpool_put
  *	Return a page.
@@ -303,17 +296,14 @@ mpool_put(mp, page, flags)
 	return (RET_SUCCESS);
 }
 
-int mpool_free_pg(mp, page)
+int mpool_free(mp, page)
 	MPOOL *mp;
 	void *page;
 {
-	int order;
 	BKT *bp = (BKT *)((char *)page - sizeof(BKT));
 
 	bp->pinned--;
 	bp->flags &= ~MPOOL_DIRTY;
-
-	for (order = 0; mp->pagesize > (1 << order); order++);
 
 	mpool_bfree(mp, bp->pgno * mp->pagesize);
 	return 0;

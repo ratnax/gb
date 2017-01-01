@@ -30,14 +30,10 @@
  */
 typedef struct _page {
 	pgno_t	pgno;			/* this page's page number */
-	pgno_t	prevpg;			/* left sibling */
-	pgno_t	nextpg;			/* right sibling */
 
 #define	P_BINTERNAL	0x01		/* btree internal page */
 #define	P_BLEAF		0x02		/* leaf page */
-#define	P_OVERFLOW	0x04		/* overflow page */
-#define P_TYPE		0x0f		/* type mask */
-#define	P_PRESERVE	0x10		/* never delete this chain of pages */
+#define P_TYPE		0x03		/* type mask */
 	u_int32_t flags;
 
 	indx_t	lower;			/* lower bound of free space on page */
@@ -47,7 +43,7 @@ typedef struct _page {
 
 /* First and next index. */
 #define	BTDATAOFF							\
-	(sizeof(pgno_t) + sizeof(pgno_t) + sizeof(pgno_t) +		\
+	(sizeof(pgno_t) + 						\
 	    sizeof(u_int32_t) + sizeof(indx_t) + sizeof(indx_t))
 #define	NEXTINDEX(p)	(((p)->lower - BTDATAOFF) / sizeof(indx_t))
 
@@ -83,7 +79,6 @@ typedef struct _binternal {
 	u_int32_t ksize;		/* key size */
 	pgno_t	pgno;			/* page number stored on */
 #define	P_BIGDATA	0x01		/* overflow data */
-#define	P_BIGKEY	0x02		/* overflow key */
 	u_char	flags;
 	char	bytes[1];		/* data */
 } BINTERNAL;
@@ -152,6 +147,9 @@ typedef struct _bleaf {
 typedef struct _epgno {
 	pgno_t	pgno;			/* the page number */
 	indx_t	index;			/* the index on the page */
+#define P_LMOST		0x1
+#define P_RMOST		0x2
+	u_int8_t flags;
 } EPGNO;
 
 typedef struct _epg {
@@ -184,10 +182,12 @@ typedef struct _btree {
 	pthread_mutex_t mutex;
 #endif
 
-#define	BT_PUSH(t, p, i) {						\
+#define	BT_TOP(t)	(t->bt_sp == t->bt_stack ? NULL : (t->bt_sp - 1))
+#define	BT_PUSH(t, p, i, flags) {				\
 	t->bt_sp->pgno = p; 						\
 	t->bt_sp->index = i; 						\
-	++t->bt_sp;							\
+	t->bt_sp->flags = flags; 					\
+	++t->bt_sp;									\
 }
 #define	BT_POP(t)	(t->bt_sp == t->bt_stack ? NULL : --t->bt_sp)
 #define	BT_CLR(t)	(t->bt_sp = t->bt_stack)

@@ -323,7 +323,6 @@ nroot(t)
 	}
 
 	root->pgno = npg;
-	root->prevpg = root->nextpg = P_INVALID;
 	root->lower = BTDATAOFF;
 	root->upper = t->bt_psize;
 	root->flags = P_BLEAF;
