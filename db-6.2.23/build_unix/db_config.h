@@ -69,7 +69,7 @@
 #define HAVE_CLOCK_MONOTONIC 1
 
 /* Define to 1 if building compression support. */
-#define HAVE_COMPRESSION 1
+/* #undef HAVE_COMPRESSION */
 
 /* Define to 1 if building cryptography support. */
 #define HAVE_CRYPTO 1
@@ -173,10 +173,10 @@
 #define HAVE_GETUID 1
 
 /* Define to 1 if building Hash access method. */
-#define HAVE_HASH 1
+/* #undef HAVE_HASH */
 
 /* Define to 1 if building Heap access method. */
-#define HAVE_HEAP 1
+/* #undef HAVE_HEAP */
 
 /* Define to 1 if you have the `hstrerror' function. */
 #define HAVE_HSTRERROR 1
@@ -362,7 +362,7 @@
 /* #undef HAVE_O_DIRECT */
 
 /* Define to 1 if building partitioned database support. */
-#define HAVE_PARTITION 1
+/* #undef HAVE_PARTITION */
 
 /* Define to 1 to enable some kind of performance event monitoring. */
 /* #undef HAVE_PERFMON */
@@ -416,7 +416,7 @@
 #define HAVE_QSORT 1
 
 /* Define to 1 if building Queue access method. */
-#define HAVE_QUEUE 1
+/* #undef HAVE_QUEUE */
 
 /* Define to 1 if you have the `raise' function. */
 #define HAVE_RAISE 1
@@ -431,10 +431,10 @@
 #define HAVE_RANDOM_R 1
 
 /* Define to 1 if building replication support. */
-#define HAVE_REPLICATION 1
+/* #undef HAVE_REPLICATION */
 
 /* Define to 1 if building the Berkeley DB replication framework. */
-#define HAVE_REPLICATION_THREADS 1
+/* #undef HAVE_REPLICATION_THREADS */
 
 /* Define to 1 if you have the `sched_yield' function. */
 #define HAVE_SCHED_YIELD 1
@@ -476,7 +476,7 @@
 #define HAVE_STAT 1
 
 /* Define to 1 if building statistics support. */
-#define HAVE_STATISTICS 1
+/* #undef HAVE_STATISTICS */
 
 /* Define to 1 if you have the <stdint.h> header file. */
 #define HAVE_STDINT_H 1
@@ -577,7 +577,7 @@
 #define HAVE_UPGRADE_SUPPORT 1
 
 /* Define to 1 if building access method verification support. */
-#define HAVE_VERIFY 1
+/* #undef HAVE_VERIFY */
 
 /* Define to 1 if you have the `vsnprintf' function. */
 #define HAVE_VSNPRINTF 1

@@ -268,7 +268,7 @@ XA_OBJS=\
 # When DTrace is enabled it may need to post-process (with -G) most of the
 # object files in order to generate the additional objects in .
 
-DTRACE_OBJS= mut_tas.lo mut_pthread.lo  $(BTREE_OBJS) $(HASH_OBJS) $(HASH_VRFY_OBJS) $(HEAP_OBJS) $(HEAP_VRFY_OBJS) $(QUEUE_OBJS) $(QUEUE_VRFY_OBJS) $(REP_OBJS) $(REPMGR_OBJS) $(BTREE_VRFY_OBJS) $(LOG_VRFY_OBJS) $(LOCK_OBJS) $(MUTEX_OBJS)  $(CRYPTO_OBJS) \
+DTRACE_OBJS= mut_tas.lo mut_pthread.lo  $(BTREE_OBJS) hash_stub.lo heap_stub.lo qam_stub.lo rep_stub.lo repmgr_stub.lo db_vrfy_stub.lo log_verify_stub.lo $(LOCK_OBJS) $(MUTEX_OBJS)  $(CRYPTO_OBJS) \
 	blob_fileops.lo blob_page.lo blob_stream.lo blob_util.lo \
 	clock.lo crdel_auto.lo crdel_rec.lo db.lo db_am.lo db_auto.lo \
 	db_backup.lo db_byteorder.lo db_cam.lo db_cds.lo db_compact.lo \
