@@ -46,7 +46,14 @@ void exit(int status)
 
 char *getenv(const char *name)
 {
-	// TODO
+	static char db_home[] = "/home/x/db_home"; 
+	static char tmp[] = "/home/x/db_home/tmp"; 
+	if (!strncmp(name, "DB_HOME", 7))
+		return db_home;	
+	if (!strncmp(name, "TEMP", 4) ||
+		!strncmp(name, "TMP", 3) ||
+   		!strncmp(name, "Temp", 4)) 
+		return tmp;
 	return NULL;
 }
 
@@ -244,7 +251,12 @@ static int __sflags(const char *mode)
 
 FILE * fopen(const char *name, const char *mode)
 {
-	return filp_open(name, __sflags(mode), 0666);
+	FILE *fp = filp_open(name, __sflags(mode), 0666);
+	if (IS_ERR(fp)) {
+		errno = -PTR_ERR(fp); 
+		return NULL;
+	}
+	return fp;
 }
 
 int fflush(FILE *fp) 
@@ -254,12 +266,24 @@ int fflush(FILE *fp)
 
 size_t fread(void *ptr, size_t size, size_t nmemb, FILE *fp)
 {
-	return kernel_read(fp, fp->f_pos, ptr, size * nmemb);
+	size_t ret = kernel_read(fp, fp->f_pos, ptr, size * nmemb);
+	if (ret < 0) {
+		errno = -ret;
+	}
+	return ret;
 }
 
 size_t fwrite(const void *ptr, size_t size, size_t nmemb, FILE *fp)
 {
-	return kernel_write(fp, ptr, size * nmemb, fp->f_pos);
+	size_t ret;
+	if (fp == stderr || fp == stdout || fp == stdin) {
+		printk(ptr); 
+		return size * nmemb;
+	}
+	ret = kernel_write(fp, ptr, size * nmemb, fp->f_pos);
+	if (ret < 0)
+		errno = -ret;
+	return ret;
 }
 
 int fgetc(FILE *fp)
@@ -304,10 +328,12 @@ char *strerror(int errno)
 }
 
 /* time.h */
-time_t time(time_t *t)
+time_t time(time_t *tp)
 {
-	*t = get_seconds();
-	return *t;
+	time_t t = get_seconds();
+	if (tp)
+		*tp = t;
+	return t;
 }
 
 struct tm *localtime(const time_t *t)

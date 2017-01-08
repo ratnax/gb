@@ -374,6 +374,7 @@ __lock_env_refresh(env)
 	if (F_ISSET(env, ENV_PRIVATE)) {
 		reginfo->mtx_alloc = MUTEX_INVALID;
 		/* Discard the conflict matrix. */
+	
 		__env_alloc_free(reginfo, R_ADDR(reginfo, lr->conf_off));
 
 		/* Discard the object hash table. */
@@ -383,7 +384,9 @@ __lock_env_refresh(env)
 		__env_alloc_free(reginfo, R_ADDR(reginfo, lr->locker_off));
 
 		/* Discard the object hash stat table. */
+#ifdef HAVE_STATISTICS
 		__env_alloc_free(reginfo, R_ADDR(reginfo, lr->stat_off));
+#endif
 		for (j = 0; j < lr->part_t_size; j++) {
 			SH_TAILQ_INIT(&FREE_OBJS(lt, j));
 			SH_TAILQ_INIT(&FREE_LOCKS(lt, j));
