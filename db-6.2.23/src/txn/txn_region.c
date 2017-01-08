@@ -465,7 +465,7 @@ __txn_get_readers(env, readers, ntxnsp)
 	DB_LSN **readers;
 	int *ntxnsp;
 {
-	DB_LSN current, *lsns;
+	DB_LSN cur, *lsns;
 	DB_TXNMGR *mgr;
 	DB_TXNREGION *region;
 	TXN_DETAIL *td;
@@ -480,7 +480,7 @@ __txn_get_readers(env, readers, ntxnsp)
 	region = mgr->reginfo.primary;
 	lsns = NULL;
 
-	if ((ret = __log_current_lsn_int(env, &current, NULL, NULL)) != 0)
+	if ((ret = __log_current_lsn_int(env, &cur, NULL, NULL)) != 0)
 		return (ret);
 
 	txnmax = TXN_READERS_SIZE;
@@ -489,7 +489,7 @@ __txn_get_readers(env, readers, ntxnsp)
 
 	TXN_SYSTEM_LOCK(env);
 	/* The array always has at least the current lsn. */
-	lsns[0] = current;
+	lsns[0] = cur;
 	count = 1;
 	is_sorted = TRUE;
 

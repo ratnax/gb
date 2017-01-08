@@ -63,7 +63,7 @@ __db_pgin(dbenv, pg, pp, cookie)
 	void *pp;
 	DBT *cookie;
 {
-	DB dummydb, *dbp;
+	DB *dummydb = NULL, *dbp;
 	DB_CIPHER *db_cipher;
 	DB_LSN not_used;
 	DB_PGINFO *pginfo;
@@ -79,8 +79,10 @@ __db_pgin(dbenv, pg, pp, cookie)
 
 	ret = is_hmac = 0;
 	chksum = NULL;
-	memset(&dummydb, 0, sizeof(DB));
-	dbp = &dummydb;
+
+	dbp = dummydb = calloc(1, sizeof(DB));
+	if (!dbp)
+		return ENOMEM;
 	dbp->dbenv = dbenv;
 	dbp->env = env;
 	dbp->flags = pginfo->flags;
@@ -152,19 +154,24 @@ __db_pgin(dbenv, pg, pp, cookie)
 			__db_errx(env, DB_STR_A("0684",
 	    "checksum error: page %lu: catastrophic recovery required",
 			    "%lu"), (u_long)pg);
-			return (__env_panic(env, DB_RUNRECOVERY));
+			ret = (__env_panic(env, DB_RUNRECOVERY));
+			goto out;
 		default:
-			return (ret);
+			goto out;
 		}
 	}
 	if ((ret = __db_decrypt_pg(env, dbp, pagep)) != 0)
-		return (ret);
+		goto out;
+
 	switch (pagep->type) {
 	case P_INVALID:
-		if (pginfo->type == DB_QUEUE)
-			return (__qam_pgin_out(env, pg, pp, cookie));
-		else if (pginfo->type == DB_HEAP)
-			return (__heap_pgin(dbp, pg, pp, cookie));
+		if (pginfo->type == DB_QUEUE)  {
+			ret = (__qam_pgin_out(env, pg, pp, cookie));
+			goto out;
+		} else if (pginfo->type == DB_HEAP) {
+			ret = (__heap_pgin(dbp, pg, pp, cookie));
+			goto out;
+		}
 		/*
 		 * This page is either newly allocated from the end of the
 		 * file, or from the free list, or it is an as-yet unwritten
@@ -175,20 +182,23 @@ __db_pgin(dbenv, pg, pp, cookie)
 		 * is not configured fall back to btree swapping.
 		 */
 #ifdef HAVE_HASH
-		return (__ham_pgin(dbp, pg, pp, cookie));
+		ret = (__ham_pgin(dbp, pg, pp, cookie));
 #else
-		return (__bam_pgin(dbp, pg, pp, cookie));
+		ret = (__bam_pgin(dbp, pg, pp, cookie));
 #endif
+		goto out;
 		/* NOTREACHED. */
 		break;
 	case P_HASH_UNSORTED:
 	case P_HASH:
 	case P_HASHMETA:
-		return (__ham_pgin(dbp, pg, pp, cookie));
+		ret = (__ham_pgin(dbp, pg, pp, cookie));
+		goto out;
 	case P_HEAP:
 	case P_HEAPMETA:
 	case P_IHEAP:
-		return (__heap_pgin(dbp, pg, pp, cookie));
+		ret = (__heap_pgin(dbp, pg, pp, cookie));
+		goto out;
 	case P_BTREEMETA:
 	case P_IBTREE:
 	case P_IRECNO:
@@ -196,14 +206,19 @@ __db_pgin(dbenv, pg, pp, cookie)
 	case P_LDUP:
 	case P_LRECNO:
 	case P_OVERFLOW:
-		return (__bam_pgin(dbp, pg, pp, cookie));
+		ret = (__bam_pgin(dbp, pg, pp, cookie));
+		goto out;
 	case P_QAMMETA:
 	case P_QAMDATA:
-		return (__qam_pgin_out(env, pg, pp, cookie));
+		ret = (__qam_pgin_out(env, pg, pp, cookie));
+		goto out;
 	default:
 		break;
 	}
-	return (__db_pgfmt(env, pg));
+	ret = (__db_pgfmt(env, pg));
+out:
+	if (dummydb) free(dummydb);
+	return ret;
 }
 
 /*
@@ -219,7 +234,7 @@ __db_pgout(dbenv, pg, pp, cookie)
 	void *pp;
 	DBT *cookie;
 {
-	DB dummydb, *dbp;
+	DB *dummydb = NULL, *dbp;
 	DB_PGINFO *pginfo;
 	ENV *env;
 	PAGE *pagep;
@@ -229,8 +244,10 @@ __db_pgout(dbenv, pg, pp, cookie)
 	env = dbenv->env;
 	pagep = (PAGE *)pp;
 
-	memset(&dummydb, 0, sizeof(DB));
-	dbp = &dummydb;
+	dbp = dummydb = calloc(1, sizeof(DB));
+	if (!dbp)
+		return ENOMEM;
+
 	dbp->dbenv = dbenv;
 	dbp->env = env;
 	dbp->flags = pginfo->flags;
@@ -257,7 +274,8 @@ __db_pgout(dbenv, pg, pp, cookie)
 			ret = __bam_pgout(dbp, pg, pp, cookie);
 			break;
 		default:
-			return (__db_pgfmt(env, pg));
+			ret = (__db_pgfmt(env, pg));
+			goto out;
 		}
 		break;
 	case P_HASH:
@@ -291,12 +309,16 @@ __db_pgout(dbenv, pg, pp, cookie)
 		ret = __qam_pgin_out(env, pg, pp, cookie);
 		break;
 	default:
-		return (__db_pgfmt(env, pg));
+		ret = __db_pgfmt(env, pg);
+		goto out;
 	}
-	if (ret)
-		return (ret);
 
-	return (__db_encrypt_and_checksum_pg(env, dbp, pagep));
+	if (ret == 0)
+		ret = (__db_encrypt_and_checksum_pg(env, dbp, pagep));
+out:
+	if (dummydb)
+		free(dummydb);
+	return ret;
 }
 
 /*

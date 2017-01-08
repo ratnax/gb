@@ -69,7 +69,7 @@ __os_ioinfo(env, path, fhp, mbytesp, bytesp, iosizep)
 	DB_FH *fhp;
 	u_int32_t *mbytesp, *bytesp, *iosizep;
 {
-	struct stat sb;
+	struct stat sb = {0,};
 	int ret;
 
 	if (DB_GLOBAL(j_ioinfo) != NULL)

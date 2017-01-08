@@ -473,7 +473,7 @@ __lock_addfamilylocker(env, pid, id, is_family)
 	ENV *env;
 	u_int32_t pid, id, is_family;
 {
-	DB_LOCKER *lockerp, *mlockerp;
+	DB_LOCKER *lockerp, *mlockerp = NULL;
 	DB_LOCKREGION *region;
 	DB_LOCKTAB *lt;
 	int ret;

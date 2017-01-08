@@ -43,9 +43,9 @@ __os_dirlist(env, dir, returndir, namesp, cntp)
 	DB_ENV *dbenv;
 	struct dirent *dp;
 	DIR *dirp;
-	struct stat sb;
+	struct stat sb = {0, };
 	int arraysz, cnt, ret;
-	char **names, buf[DB_MAXPATHLEN];
+	char **names, *buf = NULL;
 
 	*namesp = NULL;
 	*cntp = 0;
@@ -63,8 +63,13 @@ __os_dirlist(env, dir, returndir, namesp, cntp)
 	if ((dirp = opendir(CHAR_STAR_CAST dir)) == NULL)
 		return (__os_get_errno());
 	names = NULL;
+
+	buf = malloc(DB_MAXPATHLEN);
+	if (!buf) return -ENOMEM;
+
+
 	for (arraysz = cnt = 0; (dp = readdir(dirp)) != NULL;) {
-		snprintf(buf, sizeof(buf), "%s/%s", dir, dp->d_name);
+		snprintf(buf, DB_MAXPATHLEN, "%s/%s", dir, dp->d_name);
 
 		RETRY_CHK(stat(buf, &sb), ret);
 		if (ret != 0) {
@@ -111,7 +116,9 @@ __os_dirlist(env, dir, returndir, namesp, cntp)
 	*cntp = cnt;
 	return (0);
 
-err:	if (names != NULL)
+err:	
+	if (buf) free(buf);
+	if (names != NULL)
 		__os_dirfree(env, names, cnt);
 	if (dirp != NULL)
 		(void)closedir(dirp);

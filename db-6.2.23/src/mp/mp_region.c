@@ -448,7 +448,7 @@ __memp_region_size(env, reg_sizep, htab_bucketsp)
 			if ((pgsize = dbenv->mp_pagesize) == 0)
 				pgsize = MPOOL_DEFAULT_PAGESIZE;
 			*htab_bucketsp = __db_tablesize(
-				(u_int32_t)(reg_size / (2.5 * pgsize)));
+				(u_int32_t)(reg_size / ((5 * pgsize) / 2)));
 		}
 	}
 
@@ -472,9 +472,11 @@ __memp_region_mutex_count(env)
 	dbenv = env->dbenv;
 
 	__memp_region_size(env, &reg_size, &htab_buckets);
+
 	if (dbenv->mp_mtxcount != 0)
 		htab_buckets = dbenv->mp_mtxcount;
 	max_region = __memp_max_regions(env);
+
 	if ((pgsize = dbenv->mp_pagesize) == 0) {
 		/*
 		 * If MVCC is on during environment creation, provide enough
@@ -487,7 +489,6 @@ __memp_region_mutex_count(env)
 		else
 			pgsize = MPOOL_DEFAULT_PAGESIZE;
 	}
-
 	/*
 	 * We need a couple of mutexes for the region itself, one for each
 	 * file handle (MPOOLFILE) the application allocates, one for each

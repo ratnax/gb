@@ -264,7 +264,10 @@ __os_detach(env, infop, destroy)
 {
 	DB_ENV *dbenv;
 	REGION *rp;
-	int ret, t_ret;
+	int ret;
+#ifdef HAVE_MMAP
+	int t_ret = 0;
+#endif
 
 	/*
 	 * We pass a DB_ENV handle to the user's replacement unmap function,

@@ -25,7 +25,7 @@ static int __db_setup_freelist __P((DB *, db_pglist_t *, u_int32_t));
 	do {								\
 		save_data = *c_data;					\
 		ret = __db_retcopy(env,				\
-		     &save_start, current.data, current.size,		\
+		     &save_start, cur.data, cur.size,		\
 		     &save_start.data, &save_start.ulen);		\
 	} while (0)
 
@@ -42,9 +42,9 @@ static int __db_setup_freelist __P((DB *, db_pglist_t *, u_int32_t));
 		c_data->compact_truncate = save_data.compact_truncate;	\
 		c_data->compact_empty_buckets =				\
 		    save_data.compact_empty_buckets;			\
-		ret = __db_retcopy(env, &current,			\
+		ret = __db_retcopy(env, &cur,			\
 		     save_start.data, save_start.size,			\
-		     &current.data, &current.ulen);			\
+		     &cur.data, &cur.ulen);			\
 	} while (0)
 
 /*
@@ -64,7 +64,7 @@ __db_compact_int(dbp, ip, txn, start, stop, c_data, flags, end)
 	DBT *end;
 {
 	DBC *dbc;
-	DBT current, save_start;
+	DBT cur, save_start;
 	DB_COMPACT save_data;
 	DB_TXN *txn_orig;
 	ENV *env;
@@ -79,7 +79,7 @@ __db_compact_int(dbp, ip, txn, start, stop, c_data, flags, end)
 
 	env = dbp->env;
 
-	memset(&current, 0, sizeof(current));
+	memset(&cur, 0, sizeof(cur));
 	memset(&save_start, 0, sizeof(save_start));
 	dbc = NULL;
 	factor = 0;
@@ -94,13 +94,13 @@ __db_compact_int(dbp, ip, txn, start, stop, c_data, flags, end)
 #endif
 
 	/*
-	 * We pass "current" to the internal routine, indicating where that
+	 * We pass "cur" to the internal routine, indicating where that
 	 * routine should begin its work and expecting that it will return to
 	 * us the last key that it processed.
 	 */
 	if (start != NULL && (ret = __db_retcopy(env,
-	     &current, start->data, start->size,
-	     &current.data, &current.ulen)) != 0)
+	     &cur, start->data, start->size,
+	     &cur.data, &cur.ulen)) != 0)
 		return (ret);
 
 	empty_buckets = c_data->compact_empty_buckets;
@@ -198,10 +198,10 @@ no_free:
 #ifdef HAVE_HASH
 		if (dbp->type == DB_HASH)
 			ret = __ham_compact_int(dbc,
-			    &current, stop, factor, c_data, &isdone, flags);
+			    &cur, stop, factor, c_data, &isdone, flags);
 		else
 #endif
-			ret = __bam_compact_int(dbc, &current, stop, factor,
+			ret = __bam_compact_int(dbc, &cur, stop, factor,
 			     &span, c_data, &isdone);
 		if (ret == DB_LOCK_DEADLOCK && txn_local) {
 			/*
@@ -215,7 +215,7 @@ no_free:
 		}
 		/*
 		 * If we could not get a lock while holding an internal
-		 * node latched, commit the current local transaction otherwise
+		 * node latched, commit the cur local transaction otherwise
 		 * report a deadlock.
 		 */
 		if (ret == DB_LOCK_NOTGRANTED) {
@@ -240,10 +240,10 @@ err:		if (txn_local && txn != NULL) {
 	} while (ret == 0 && !isdone);
 
 	if (ret == 0 && end != NULL)
-		ret = __db_retcopy(env, end, current.data, current.size,
+		ret = __db_retcopy(env, end, cur.data, cur.size,
 		    &end->data, &end->ulen);
-	if (current.data != NULL)
-		__os_free(env, current.data);
+	if (cur.data != NULL)
+		__os_free(env, cur.data);
 	if (save_start.data != NULL)
 		__os_free(env, save_start.data);
 

@@ -232,6 +232,9 @@ err:	if (ret != 0) {
 	return (ret);
 }
 
+inline static int	__db_pthread_mutex_prep 
+					__P((ENV *, db_mutex_t, DB_MUTEX *, int));
+
 /*
  * __db_pthread_mutex_prep
  *	Prepare to use a pthread-based DB_MUTEX.
@@ -314,6 +317,10 @@ lockit:
 	COMPQUIET(exclusive, 0);
 	return (ret);
 }
+
+inline static int	__db_pthread_mutex_condwait	
+					__P((ENV *, db_mutex_t, DB_MUTEX *, db_timespec *));
+
 
 /*
  * __db_pthread_mutex_condwait

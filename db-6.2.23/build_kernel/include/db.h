@@ -2939,7 +2939,7 @@ struct __db_site {
 	/* DB_SITE PUBLIC HANDLE LIST END */
 };
 
-#if DB_DBM_HSEARCH != 0
+#ifdef DB_DBM_HSEARCH 
 /*******************************************************
  * Dbm/Ndbm historic interfaces.
  *******************************************************/
@@ -3309,7 +3309,7 @@ int log_compare __P((const DB_LSN *, const DB_LSN *));
 int db_env_set_win_security __P((SECURITY_ATTRIBUTES *sa));
 #endif
 int db_sequence_create __P((DB_SEQUENCE **, DB *, u_int32_t));
-#if DB_DBM_HSEARCH != 0
+#ifdef DB_DBM_HSEARCH
 int	 __db_ndbm_clearerr __P((DBM *));
 void	 __db_ndbm_close __P((DBM *));
 int	 __db_ndbm_delete __P((DBM *, datum));
@@ -3330,7 +3330,7 @@ int	 __db_dbm_init __P((char *));
 datum __db_dbm_nextkey __P((datum));
 int	 __db_dbm_store __P((datum, datum));
 #endif
-#if DB_DBM_HSEARCH != 0
+#ifdef DB_DBM_HSEARCH 
 int __db_hcreate __P((size_t));
 ENTRY *__db_hsearch __P((ENTRY, ACTION));
 void __db_hdestroy __P((void));

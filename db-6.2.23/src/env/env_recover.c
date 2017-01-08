@@ -18,6 +18,8 @@
 #include "dbinc/qam.h"
 #include "dbinc/txn.h"
 
+typedef unsigned long long double_t;
+
 static int	__db_log_corrupt __P((ENV *, DB_LSN *));
 static int	__env_init_rec_47 __P((ENV *));
 static int	__env_init_rec_48 __P((ENV *));
@@ -26,7 +28,7 @@ static int	__env_init_rec_60 __P((ENV *));
 static int	__env_init_rec_60p1 __P((ENV *));
 static int	__log_earliest __P((ENV *, DB_LOGC *, int32_t *, DB_LSN *));
 
-static double	__lsn_diff __P((DB_LSN *, DB_LSN *, DB_LSN *, u_int32_t, int));
+static double_t	__lsn_diff __P((DB_LSN *, DB_LSN *, DB_LSN *, u_int32_t, int));
 static int	__log_backup __P((ENV *, DB_LOGC *, DB_LSN *, DB_LSN*));
 
 /*
@@ -58,14 +60,14 @@ __db_apprec(env, ip, max_lsn, trunclsn, update, flags)
 	REGINFO *infop;
 	__txn_ckp_args *ckp_args;
 	time_t now, tlow;
-	double nfiles;
+	double_t nfiles;
 	u_int32_t hi_txn, log_size, txnid;
 	int32_t low;
 	int all_recovered, progress, rectype, ret, t_ret;
 	char *p, *pass;
 	char t1[CTIME_BUFLEN], t2[CTIME_BUFLEN], time_buf[CTIME_BUFLEN];
 
-	COMPQUIET(nfiles, (double)0.001);
+	COMPQUIET(nfiles, (double_t) 1);
 
 	dbenv = env->dbenv;
 	logc = NULL;
@@ -319,15 +321,15 @@ __db_apprec(env, ip, max_lsn, trunclsn, update, flags)
 
 	if (dbenv->db_feedback != NULL) {
 		if (last_lsn.file == first_lsn.file)
-			nfiles = (double)
+			nfiles = (double_t)
 			    (last_lsn.offset - first_lsn.offset) / log_size;
 		else
-			nfiles = (double)(last_lsn.file - first_lsn.file) +
-			    (double)((log_size - first_lsn.offset) +
+			nfiles = (double_t)(last_lsn.file - first_lsn.file) +
+			    (double_t)((log_size - first_lsn.offset) +
 			    last_lsn.offset) / log_size;
 		/* We are going to divide by nfiles; make sure it isn't 0. */
-		if (nfiles < 0.001)
-			nfiles = 0.001;
+		if (nfiles < 1)
+			nfiles = 1;
 	}
 
 	/* Find a low txnid. */
@@ -641,17 +643,17 @@ err:	if (logc != NULL && (t_ret = __logc_close(logc)) != 0 && ret == 0)
 
 /*
  * Figure out how many logfiles we have processed.  If we are moving
- * forward (is_forward != 0), then we're computing current - low.  If
- * we are moving backward, we are computing high - current.  max is
+ * forward (is_forward != 0), then we're computing cur - low.  If
+ * we are moving backward, we are computing high - cur.  max is
  * the number of bytes per logfile.
  */
-static double
-__lsn_diff(low, high, current, max, is_forward)
-	DB_LSN *low, *high, *current;
+static double_t
+__lsn_diff(low, high, cur, max, is_forward)
+	DB_LSN *low, *high, *cur;
 	u_int32_t max;
 	int is_forward;
 {
-	double nf;
+	double_t nf;
 
 	/*
 	 * There are three cases in each direction.  If you are in the
@@ -661,25 +663,25 @@ __lsn_diff(low, high, current, max, is_forward)
 	 * number of files -- we need to handle both of these.
 	 */
 	if (is_forward) {
-		if (current->file == low->file)
-			nf = (double)(current->offset - low->offset) / max;
-		else if (current->offset < low->offset)
-			nf = (double)((current->file - low->file) - 1) +
-			    (double)((max - low->offset) + current->offset) /
+		if (cur->file == low->file)
+			nf = (double_t)(cur->offset - low->offset) / max;
+		else if (cur->offset < low->offset)
+			nf = (double_t)((cur->file - low->file) - 1) +
+			    (double_t)((max - low->offset) + cur->offset) /
 			    max;
 		else
-			nf = (double)(current->file - low->file) +
-			    (double)(current->offset - low->offset) / max;
+			nf = (double_t)(cur->file - low->file) +
+			    (double_t)(cur->offset - low->offset) / max;
 	} else {
-		if (current->file == high->file)
-			nf = (double)(high->offset - current->offset) / max;
-		else if (current->offset > high->offset)
-			nf = (double)((high->file - current->file) - 1) +
-			    (double)
-			    ((max - current->offset) + high->offset) / max;
+		if (cur->file == high->file)
+			nf = (double_t)(high->offset - cur->offset) / max;
+		else if (cur->offset > high->offset)
+			nf = (double_t)((high->file - cur->file) - 1) +
+			    (double_t)
+			    ((max - cur->offset) + high->offset) / max;
 		else
-			nf = (double)(high->file - current->file) +
-			    (double)(high->offset - current->offset) / max;
+			nf = (double_t)(high->file - cur->file) +
+			    (double_t)(high->offset - cur->offset) / max;
 	}
 	return (nf);
 }
@@ -818,7 +820,7 @@ __env_openfiles(env, logc, txninfo,
 	void *txninfo;
 	DBT *data;
 	DB_LSN *open_lsn, *last_lsn;
-	double nfiles;
+	double_t nfiles;
 	int in_recovery;
 {
 	DB_ENV *dbenv;

@@ -955,13 +955,18 @@ __blob_clean_dir(env, txn, dir, subdir, istruncate)
 {
 	DB *meta;
 	DB_THREAD_INFO *ip;
-	char *blob_dir, **dirs, *fname, full_path[DB_MAXPATHLEN], *local_path;
+	char *blob_dir, **dirs, *fname, *full_path = NULL, *local_path;
 	int count, i, isdir, ret, t_ret;
 
 	count = 0;
 	dirs = NULL;
 	fname = NULL;
 	meta = NULL;
+
+	full_path = malloc(DB_MAXPATHLEN);
+	if (!full_path)
+		return -ENOMEM;
+
 
 	/* Get a list of all files in the directory. */
 	if ((ret = __os_dirlist(env, dir, 1, &dirs, &count)) != 0) {
@@ -1030,13 +1035,15 @@ __blob_clean_dir(env, txn, dir, subdir, istruncate)
 				goto err;
 		}
 	}
-err:	if (meta != NULL) {
+err:
+	if (meta != NULL) {
 		if ((t_ret = __db_close(
 		    meta, NULL, DB_NOSYNC)) != 0 && ret == 0)
 			ret = t_ret;
 	}
 	if (dirs != NULL)
 		__os_dirfree(env, dirs, count);
+	if (full_path) free(full_path);
 
 	return (ret);
 }
@@ -1054,7 +1061,7 @@ int __blob_copy_all(dbp, target, flags)
 {
 	DB_THREAD_INFO *ip;
 	ENV *env;
-	char *blobdir, *fullname, *metafname, new_target[DB_MAXPATHLEN];
+	char *blobdir, *fullname, *metafname, *new_target;
 	const char *path;
 	int ret;
 
@@ -1063,6 +1070,10 @@ int __blob_copy_all(dbp, target, flags)
 	fullname = NULL;
 	metafname = NULL;
 	ret = 0;
+
+	new_target = malloc(DB_MAXPATHLEN);
+	if (!new_target)
+		return -ENOMEM;
 
 	/* Do nothing if blobs are not enabled. */
 	if (dbp->blob_sub_dir == NULL || dbp->blob_threshold == 0)
@@ -1078,7 +1089,7 @@ int __blob_copy_all(dbp, target, flags)
 	 * Default blob directory will be maintained in the target
 	 * directory only when it is backing up a single directory.
 	 */
-	(void)snprintf(new_target, sizeof(new_target), "%s%c%s%c%c",
+	(void)snprintf(new_target, DB_MAXPATHLEN, "%s%c%s%c%c",
 	    target, PATH_SEPARATOR[0], LF_ISSET(DB_BACKUP_SINGLE_DIR) ?
 	    BLOB_DEFAULT_DIR : path, PATH_SEPARATOR[0], '\0');
 	path = new_target;
@@ -1131,6 +1142,7 @@ err:	if (blobdir != NULL)
 		__os_free(env, metafname);
 	if (fullname != NULL)
 		__os_free(env, fullname);
+	if (new_target) free(new_target);
 	return (ret);
 }
 
@@ -1147,12 +1159,22 @@ __blob_copy_dir(dbp, dir, target)
 {
 	DB_THREAD_INFO *ip;
 	ENV *env;
-	char **dirs, full_path[DB_MAXPATHLEN], new_target[DB_MAXPATHLEN];
+	char **dirs, *full_path, *new_target;
 	int count, i, isdir, ret;
 
 	env = dbp->env;
 	count = 0;
 	dirs = NULL;
+	
+	full_path = malloc(DB_MAXPATHLEN);
+	if (!full_path)
+		return -ENOMEM;
+
+	new_target = malloc(DB_MAXPATHLEN);
+	if (!new_target) {
+		free(full_path);
+		return -ENOMEM;
+	}
 
 	/* Create the directory sturcture in the target directory. */
 	if ((ret = __db_mkpath(env, target)) != 0)
@@ -1200,6 +1222,8 @@ __blob_copy_dir(dbp, dir, target)
 	}
 
 err:
+	if (full_path) free(full_path);
+	if (new_target) free(new_target);
 	if (dirs != NULL)
 		__os_dirfree(env, dirs, count);
 	return (ret);

@@ -32,10 +32,10 @@
 #define HAVE_ABORT 1
 
 /* Define to 1 if you have the `atoi' function. */
-#define HAVE_ATOI 1
+//#define HAVE_ATOI 1
 
 /* Define to 1 if you have the `atol' function. */
-#define HAVE_ATOL 1
+//#define HAVE_ATOL 1
 
 /* Define to 1 if platform reads and writes files atomically. */
 /* #undef HAVE_ATOMICFILEREAD */
@@ -54,10 +54,10 @@
 #define HAVE_ATOMIC_X86_GCC_ASSEMBLY 1
 
 /* Define to 1 if you have the `backtrace' function. */
-#define HAVE_BACKTRACE 1
+//#define HAVE_BACKTRACE 1
 
 /* Define to 1 if you have the `backtrace_symbols' function. */
-#define HAVE_BACKTRACE_SYMBOLS 1
+//#define HAVE_BACKTRACE_SYMBOLS 1
 
 /* Define to 1 if you have the `bsearch' function. */
 #define HAVE_BSEARCH 1
@@ -78,7 +78,7 @@
 /* #undef HAVE_CRYPTO_IPP */
 
 /* Define to 1 if you have the `ctime_r' function. */
-#define HAVE_CTIME_R 1
+//#define HAVE_CTIME_R 1
 
 /* Define to 1 if ctime_r takes a buffer length as a third argument. */
 /* #undef HAVE_CTIME_R_3ARG */
@@ -104,7 +104,7 @@
 /* #undef HAVE_ERROR_HISTORY */
 
 /* Define to 1 if you have the <execinfo.h> header file. */
-#define HAVE_EXECINFO_H 1
+//#define HAVE_EXECINFO_H 1
 
 /* Define to 1 if platform has EXIT_SUCCESS/EXIT_FAILURE #defines. */
 #define HAVE_EXIT_SUCCESS 1
@@ -122,7 +122,7 @@
 #define HAVE_FCNTL 1
 
 /* Define to 1 if fcntl/F_SETFD denies child access to file descriptors. */
-#define HAVE_FCNTL_F_SETFD 1
+//#define HAVE_FCNTL_F_SETFD 1
 
 /* Define to 1 if you have the `fdatasync' function. */
 #define HAVE_FDATASYNC 1
@@ -140,7 +140,7 @@
 #define HAVE_FOPEN 1
 
 /* Define to 1 if you have the `ftruncate' function. */
-#define HAVE_FTRUNCATE 1
+//#define HAVE_FTRUNCATE 1
 
 /* Define to 1 if you have the `fwrite' function. */
 #define HAVE_FWRITE 1
@@ -149,7 +149,7 @@
 #define HAVE_GETADDRINFO 1
 
 /* Define to 1 if you have the `getcwd' function. */
-#define HAVE_GETCWD 1
+//#define HAVE_GETCWD 1
 
 /* Define to 1 if you have the `getenv' function. */
 #define HAVE_GETENV 1
@@ -188,16 +188,16 @@
 #define HAVE_INTTYPES_H 1
 
 /* Define to 1 if you have the `isalpha' function. */
-#define HAVE_ISALPHA 1
+//#define HAVE_ISALPHA 1
 
 /* Define to 1 if you have the `isdigit' function. */
-#define HAVE_ISDIGIT 1
+//#define HAVE_ISDIGIT 1
 
 /* Define to 1 if you have the `isprint' function. */
-#define HAVE_ISPRINT 1
+//#define HAVE_ISPRINT 1
 
 /* Define to 1 if you have the `isspace' function. */
-#define HAVE_ISSPACE 1
+//#define HAVE_ISSPACE 1
 
 /* Define to 1 if you have localization function to support globalization. */
 /* #undef HAVE_LOCALIZATION */
@@ -227,20 +227,20 @@
 #define HAVE_MLOCK 1
 
 /* Define to 1 if you have the `mmap' function. */
-#define HAVE_MMAP 1
+//#define HAVE_MMAP 1
 
 /* Define to 1 where mmap() incrementally extends the accessible mapping as
    the underlying file grows. */
-#define HAVE_MMAP_EXTEND 1
+//#define HAVE_MMAP_EXTEND 1
 
 /* Define to 1 if you have the `mprotect' function. */
-#define HAVE_MPROTECT 1
+//#define HAVE_MPROTECT 1
 
 /* Define to 1 if you have the `munlock' function. */
-#define HAVE_MUNLOCK 1
+//#define HAVE_MUNLOCK 1
 
 /* Define to 1 if you have the `munmap' function. */
-#define HAVE_MUNMAP 1
+//#define HAVE_MUNMAP 1
 
 /* Define to 1 to use the GCC compiler and 68K assembly language mutexes. */
 /* #undef HAVE_MUTEX_68K_GCC_ASSEMBLY */
@@ -324,7 +324,7 @@
 /* #undef HAVE_MUTEX_SYSTEM_RESOURCES */
 
 /* Define to 1 to configure mutexes intra-process only. */
-/* #undef HAVE_MUTEX_THREAD_ONLY */
+#define HAVE_MUTEX_THREAD_ONLY
 
 /* Define to 1 to use the CC compiler and Tru64 assembly language mutexes. */
 /* #undef HAVE_MUTEX_TRU64_CC_ASSEMBLY */
@@ -375,7 +375,7 @@
 #define HAVE_PREAD 1
 
 /* Define to 1 if you have the `printf' function. */
-#define HAVE_PRINTF 1
+//#define HAVE_PRINTF 1
 
 /* Define to 1 if you have the `pstat_getdynamic' function. */
 /* #undef HAVE_PSTAT_GETDYNAMIC */
@@ -425,10 +425,10 @@
 #define HAVE_RAND 1
 
 /* Define to 1 if you have the `random' function. */
-#define HAVE_RANDOM 1
+//#define HAVE_RANDOM 1
 
 /* Define to 1 if you have the `random_r' function. */
-#define HAVE_RANDOM_R 1
+//#define HAVE_RANDOM_R 1
 
 /* Define to 1 if building replication support. */
 /* #undef HAVE_REPLICATION */
@@ -437,7 +437,7 @@
 /* #undef HAVE_REPLICATION_THREADS */
 
 /* Define to 1 if you have the `sched_yield' function. */
-#define HAVE_SCHED_YIELD 1
+//#define HAVE_SCHED_YIELD 1
 
 /* Define to 1 if you have the `select' function. */
 #define HAVE_SELECT 1
@@ -452,10 +452,10 @@
 #define HAVE_SHARED_LATCHES 1
 
 /* Define to 1 if shmctl/SHM_LOCK locks down shared memory segments. */
-#define HAVE_SHMCTL_SHM_LOCK 1
+//#define HAVE_SHMCTL_SHM_LOCK 1
 
 /* Define to 1 if you have the `shmget' function. */
-#define HAVE_SHMGET 1
+//#define HAVE_SHMGET 1
 
 /* Define to 1 if you have the `sigaction' function. */
 #define HAVE_SIGACTION 1
@@ -467,7 +467,7 @@
 /* #undef HAVE_SLICES */
 
 /* Define to 1 if you have the `snprintf' function. */
-#define HAVE_SNPRINTF 1
+//#define HAVE_SNPRINTF 1
 
 /* Define to 1 if you have the `srandom_r' function. */
 #define HAVE_SRANDOM_R 1
@@ -500,7 +500,7 @@
 #define HAVE_STRERROR 1
 
 /* Define to 1 if you have the `strftime' function. */
-#define HAVE_STRFTIME 1
+//#define HAVE_STRFTIME 1
 
 /* Define to 1 if you have the <strings.h> header file. */
 #define HAVE_STRINGS_H 1
@@ -512,22 +512,22 @@
 /* #undef HAVE_STRIPPED_MESSAGES */
 
 /* Define to 1 if you have the `strncat' function. */
-#define HAVE_STRNCAT 1
+//#define HAVE_STRNCAT 1
 
 /* Define to 1 if you have the `strncmp' function. */
-#define HAVE_STRNCMP 1
+//#define HAVE_STRNCMP 1
 
 /* Define to 1 if you have the `strrchr' function. */
-#define HAVE_STRRCHR 1
+//#define HAVE_STRRCHR 1
 
 /* Define to 1 if you have the `strsep' function. */
-#define HAVE_STRSEP 1
+//#define HAVE_STRSEP 1
 
 /* Define to 1 if you have the `strtol' function. */
-#define HAVE_STRTOL 1
+//#define HAVE_STRTOL 1
 
 /* Define to 1 if you have the `strtoul' function. */
-#define HAVE_STRTOUL 1
+//#define HAVE_STRTOUL 1
 
 /* Define to 1 if `st_blksize' is a member of `struct stat'. */
 #define HAVE_STRUCT_STAT_ST_BLKSIZE 1
@@ -580,7 +580,7 @@
 /* #undef HAVE_VERIFY */
 
 /* Define to 1 if you have the `vsnprintf' function. */
-#define HAVE_VSNPRINTF 1
+//#define HAVE_VSNPRINTF 1
 
 /* Define to 1 if building on VxWorks. */
 /* #undef HAVE_VXWORKS */

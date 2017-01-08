@@ -73,7 +73,7 @@ do {									\
 	__db_compare_both(db, &(a), &(ad), &(b), &(bd)) :		\
 	__db_compare_both(db, &(a), 0, &(b), 0))
 
-#define	DB_SORT_STACKSIZE 32
+#define	DB_SORT_STACKSIZE 16 
 
 /*
  * __db_quicksort --

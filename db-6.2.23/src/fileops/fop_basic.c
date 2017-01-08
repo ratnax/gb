@@ -257,9 +257,9 @@ err:	if (local_open &&
  * Large writes are logged as a series of smaller writes to prevent a
  * single log from being larger than the log buffer or a log file.
  */
-#define	LOG_OVERWRITE_MULTIPLIER 0.75
-#define	LOG_REDO_MULTIPLIER 0.75
-#define	LOG_OVERWRITE_REDO_MULTIPLIER 0.33
+#define	LOG_OVERWRITE_MULTIPLIER (75/100)
+#define	LOG_REDO_MULTIPLIER (75/100)
+#define	LOG_OVERWRITE_REDO_MULTIPLIER (33/100)
 
 /*
  * __fop_write_file

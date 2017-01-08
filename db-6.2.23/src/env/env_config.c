@@ -47,7 +47,7 @@ typedef enum {
 typedef struct __db_config_desc {
 	char *name;		/* The name of a simple DB_CONFIG command. */
 	__db_config_type type;	/* The enum describing its argument type(s). */
-	int (*func)();		/* The function to call with the argument(s). */
+	int (*func)(void);		/* The function to call with the argument(s). */
 } CFG_DESC;
 
 /* These typedefs help eliminate lint warnings where "func" above is used. */
@@ -57,6 +57,8 @@ typedef int (*CFG_FUNC_LONG) __P((DB_ENV *, long));
 typedef int (*CFG_FUNC_UINT) __P((DB_ENV *, u_int32_t));
 typedef int (*CFG_FUNC_2INT) __P((DB_ENV *, int, int));
 typedef int (*CFG_FUNC_2UINT) __P((DB_ENV *, u_int32_t, u_int32_t));
+
+typedef int (*CFG_FUNC_VOID) __P((void));
 
 /*
  * This table lists the simple DB_CONFIG configuration commands. It is sorted by
@@ -74,54 +76,54 @@ typedef int (*CFG_FUNC_2UINT) __P((DB_ENV *, u_int32_t, u_int32_t));
  *	set_tas_spins		mutex_set_tas_spins
  */
 static const CFG_DESC config_descs[] = {
-    { "add_data_dir",		CFG_DIR,	__env_add_data_dir	},
-    { "db_data_dir",		CFG_DIR,	__env_set_data_dir	},
-    { "db_log_dir",		CFG_DIR,	__log_set_lg_dir	},
-    { "db_tmp_dir",		CFG_DIR,	__env_set_tmp_dir	},
-    { "home",			CFG_DIR,	__env_set_home_dir	},
-    { "mutex_set_align",	CFG_UINT,	__mutex_set_align	},
-    { "mutex_set_increment",	CFG_UINT,	__mutex_set_increment	},
-    { "mutex_set_init",		CFG_UINT,	__mutex_set_init	},
-    { "mutex_set_max",		CFG_UINT,	__mutex_set_max		},
-    { "mutex_set_tas_spins",	CFG_UINT,	__mutex_set_tas_spins	},
-    { "rep_set_clockskew",	CFG_2UINT,	__rep_set_clockskew	},
-    { "rep_set_limit",		CFG_2UINT,	__rep_set_limit		},
-    { "rep_set_nsites",		CFG_UINT,	__rep_set_nsites_pp	},
-    { "rep_set_priority",	CFG_UINT,	__rep_set_priority_pp	},
-    { "rep_set_request",	CFG_2UINT,	__rep_set_request	},
-    { "set_blob_dir",		CFG_DIR,	__env_set_blob_dir	},
-    { "set_blob_threshold",	CFG_2UINT,	__env_set_blob_threshold },
-    { "set_cache_max",		CFG_2UINT,	__memp_set_cache_max	},
-    { "set_create_dir",		CFG_DIR,	__env_set_create_dir	},
-    { "set_data_dir",		CFG_DIR,	__env_set_data_dir	},
-    { "set_data_len",		CFG_UINT,	__env_set_data_len	},
-    { "set_ext_file_dir",	CFG_DIR,	__env_set_blob_dir	},
-    { "set_ext_file_threshold",	CFG_2UINT,	__env_set_blob_threshold },
-    { "set_intermediate_dir_mode",CFG_STRING, __env_set_intermediate_dir_mode },
-    { "set_lg_bsize",		CFG_UINT,	__log_set_lg_bsize	},
-    { "set_lg_dir",		CFG_DIR,	__log_set_lg_dir	},
-    { "set_lg_filemode",	CFG_INT,	__log_set_lg_filemode	},
-    { "set_lg_max",		CFG_UINT,	__log_set_lg_max	},
-    { "set_lg_regionmax",	CFG_UINT,	__log_set_lg_regionmax	},
-    { "set_lk_max_lockers",	CFG_UINT,	__lock_set_lk_max_lockers },
-    { "set_lk_max_locks",	CFG_UINT,	__lock_set_lk_max_locks },
-    { "set_lk_max_objects",	CFG_UINT,	__lock_set_lk_max_objects },
-    { "set_lk_partitions",	CFG_UINT,	__lock_set_lk_partitions },
-    { "set_lk_tablesize",	CFG_UINT,	__lock_set_lk_tablesize },
-    { "set_memory_max",		CFG_2UINT,	__env_set_memory_max	},
-    { "set_metadata_dir",	CFG_DIR,	__env_set_metadata_dir	},
-    { "set_mp_max_openfd",	CFG_INT,	__memp_set_mp_max_openfd },
-    { "set_mp_max_write",	CFG_2INT,	__memp_set_mp_max_write },
-    { "set_mp_mmapsize",	CFG_UINT,	__memp_set_mp_mmapsize	},
-    { "set_mp_mtxcount",	CFG_UINT,	__memp_set_mp_mtxcount	},
-    { "set_mp_pagesize",	CFG_UINT,	__memp_set_mp_pagesize	},
-    { "set_region_dir",		CFG_DIR,	__memp_set_reg_dir	},
-    { "set_shm_key",		CFG_LONG,	__env_set_shm_key	},
-    { "set_slice_count",	CFG_LONG,	__env_set_slice_count	},
-    { "set_tas_spins",		CFG_UINT,	__mutex_set_tas_spins	},
-    { "set_thread_count",	CFG_UINT,	__env_set_thread_count },
-    { "set_tmp_dir",		CFG_DIR,	__env_set_tmp_dir	},
-    { "set_tx_max",		CFG_UINT,	__txn_set_tx_max	}
+    { "add_data_dir",		CFG_DIR, (CFG_FUNC_VOID) __env_add_data_dir	},
+    { "db_data_dir",		CFG_DIR, (CFG_FUNC_VOID) __env_set_data_dir	},
+    { "db_log_dir",		CFG_DIR, (CFG_FUNC_VOID) __log_set_lg_dir	},
+    { "db_tmp_dir",		CFG_DIR, (CFG_FUNC_VOID) __env_set_tmp_dir	},
+    { "home",			CFG_DIR, (CFG_FUNC_VOID) __env_set_home_dir	},
+    { "mutex_set_align",	CFG_UINT, (CFG_FUNC_VOID) __mutex_set_align	},
+    { "mutex_set_increment",	CFG_UINT, (CFG_FUNC_VOID) __mutex_set_increment	},
+    { "mutex_set_init",		CFG_UINT, (CFG_FUNC_VOID) __mutex_set_init	},
+    { "mutex_set_max",		CFG_UINT, (CFG_FUNC_VOID) __mutex_set_max		},
+    { "mutex_set_tas_spins",	CFG_UINT, (CFG_FUNC_VOID) __mutex_set_tas_spins	},
+    { "rep_set_clockskew",	CFG_2UINT, (CFG_FUNC_VOID) __rep_set_clockskew	},
+    { "rep_set_limit",		CFG_2UINT, (CFG_FUNC_VOID) __rep_set_limit		},
+    { "rep_set_nsites",		CFG_UINT, (CFG_FUNC_VOID) __rep_set_nsites_pp	},
+    { "rep_set_priority",	CFG_UINT, (CFG_FUNC_VOID) __rep_set_priority_pp	},
+    { "rep_set_request",	CFG_2UINT, (CFG_FUNC_VOID) __rep_set_request	},
+    { "set_blob_dir",		CFG_DIR, (CFG_FUNC_VOID) __env_set_blob_dir	},
+    { "set_blob_threshold",	CFG_2UINT, (CFG_FUNC_VOID) __env_set_blob_threshold },
+    { "set_cache_max",		CFG_2UINT, (CFG_FUNC_VOID) __memp_set_cache_max	},
+    { "set_create_dir",		CFG_DIR, (CFG_FUNC_VOID) __env_set_create_dir	},
+    { "set_data_dir",		CFG_DIR, (CFG_FUNC_VOID) __env_set_data_dir	},
+    { "set_data_len",		CFG_UINT, (CFG_FUNC_VOID) __env_set_data_len	},
+    { "set_ext_file_dir",	CFG_DIR, (CFG_FUNC_VOID) __env_set_blob_dir	},
+    { "set_ext_file_threshold",	CFG_2UINT, (CFG_FUNC_VOID) __env_set_blob_threshold },
+    { "set_intermediate_dir_mode",CFG_STRING, (CFG_FUNC_VOID) __env_set_intermediate_dir_mode },
+    { "set_lg_bsize",		CFG_UINT, (CFG_FUNC_VOID) __log_set_lg_bsize	},
+    { "set_lg_dir",		CFG_DIR, (CFG_FUNC_VOID) __log_set_lg_dir	},
+    { "set_lg_filemode",	CFG_INT, (CFG_FUNC_VOID) __log_set_lg_filemode	},
+    { "set_lg_max",		CFG_UINT, (CFG_FUNC_VOID) __log_set_lg_max	},
+    { "set_lg_regionmax",	CFG_UINT, (CFG_FUNC_VOID) __log_set_lg_regionmax	},
+    { "set_lk_max_lockers",	CFG_UINT, (CFG_FUNC_VOID) __lock_set_lk_max_lockers },
+    { "set_lk_max_locks",	CFG_UINT, (CFG_FUNC_VOID) __lock_set_lk_max_locks },
+    { "set_lk_max_objects",	CFG_UINT, (CFG_FUNC_VOID) __lock_set_lk_max_objects },
+    { "set_lk_partitions",	CFG_UINT, (CFG_FUNC_VOID) __lock_set_lk_partitions },
+    { "set_lk_tablesize",	CFG_UINT, (CFG_FUNC_VOID) __lock_set_lk_tablesize },
+    { "set_memory_max",		CFG_2UINT, (CFG_FUNC_VOID) __env_set_memory_max	},
+    { "set_metadata_dir",	CFG_DIR, (CFG_FUNC_VOID) __env_set_metadata_dir	},
+    { "set_mp_max_openfd",	CFG_INT, (CFG_FUNC_VOID) __memp_set_mp_max_openfd },
+    { "set_mp_max_write",	CFG_2INT, (CFG_FUNC_VOID) __memp_set_mp_max_write },
+    { "set_mp_mmapsize",	CFG_UINT, (CFG_FUNC_VOID) __memp_set_mp_mmapsize	},
+    { "set_mp_mtxcount",	CFG_UINT, (CFG_FUNC_VOID) __memp_set_mp_mtxcount	},
+    { "set_mp_pagesize",	CFG_UINT, (CFG_FUNC_VOID) __memp_set_mp_pagesize	},
+    { "set_region_dir",		CFG_DIR, (CFG_FUNC_VOID) __memp_set_reg_dir	},
+    { "set_shm_key",		CFG_LONG, (CFG_FUNC_VOID) __env_set_shm_key	},
+    { "set_slice_count",	CFG_LONG, (CFG_FUNC_VOID) __env_set_slice_count	},
+    { "set_tas_spins",		CFG_UINT, (CFG_FUNC_VOID) __mutex_set_tas_spins	},
+    { "set_thread_count",	CFG_UINT, (CFG_FUNC_VOID) __env_set_thread_count },
+    { "set_tmp_dir",		CFG_DIR, (CFG_FUNC_VOID) __env_set_tmp_dir	},
+    { "set_tx_max",		CFG_UINT, (CFG_FUNC_VOID) __txn_set_tx_max	}
 };
 
 /*

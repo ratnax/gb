@@ -528,23 +528,33 @@ __db_errcall(dbenv, error, error_set, fmt, ap)
 	va_list ap;
 {
 	char *end, *p;
-	char buf[2048 + DB_ERROR_HISTORY_SIZE];
-	char sysbuf[1024];
+	char *buf = NULL;
+	char *sysbuf = NULL;
 #ifdef HAVE_ERROR_HISTORY
 	DB_MSGBUF *deferred_mb;
 	ptrdiff_t len;
 #endif
 
+	buf = malloc(2048 + DB_ERROR_HISTORY_SIZE);
+	if (!buf)
+		return;
+
+	sysbuf = malloc(1024);
+	if (!sysbuf) {
+		free(buf);
+		return;
+	}
+
 	p = buf;
 	/* Reserve 1 byte at the end for '\0'. */
-	end = buf + sizeof(buf) - 1;
+	end = buf + (2048 + DB_ERROR_HISTORY_SIZE) - 1;
 	if (fmt != NULL)
-		p += vsnprintf(buf, sizeof(buf), fmt, ap);
+		p += vsnprintf(buf, 2048 + DB_ERROR_HISTORY_SIZE, fmt, ap);
 
 	if (error_set != DB_ERROR_NOT_SET)
 		p += snprintf(p, (size_t)(end - p), ": %s",
 		    error_set == DB_ERROR_SET ? db_strerror(error) :
-		    __os_strerror(error, sysbuf, sizeof(sysbuf)));
+		    __os_strerror(error, sysbuf, 1024));
 
 #ifdef HAVE_ERROR_HISTORY
 	/*
@@ -565,6 +575,8 @@ __db_errcall(dbenv, error, error_set, fmt, ap)
 #endif
 
 	dbenv->db_errcall(dbenv, dbenv->db_errpfx, buf);
+	if (buf) free(buf);
+	if (sysbuf) free(sysbuf);
 }
 
 /*
@@ -591,11 +603,15 @@ __db_errfile(dbenv, error, error_set, fmt, ap)
 	char *defintro, *defmsgs, *error_str, *prefix, *sep1, *sep2;
 	char sysbuf[200];
 	char prefix_buf[200];
-	char full_fmt[4096];
+	char *full_fmt = NULL;
 #ifdef HAVE_ERROR_HISTORY
 	DB_MSGBUF *deferred_mb;
 	size_t room;
 #endif
+
+	full_fmt = malloc(4096);
+	if (!full_fmt)
+		return;
 
 	prefix = sep1 = sep2 = error_str = "";
 	fp = dbenv == NULL ||
@@ -634,7 +650,7 @@ __db_errfile(dbenv, error, error_set, fmt, ap)
 		 * If there are more deferred messages than will be displayed
 		 * change the introductory message to warn of the truncation.
 		 */
-		room = sizeof(full_fmt) - (strlen(sep1) +
+		room = 4096 - (strlen(sep1) +
 		    strlen(fmt) + strlen(sep2) + strlen(error_str));
 		if (deferred_mb->len + strlen(defintro) > room) {
 			defintro =
@@ -645,10 +661,12 @@ __db_errfile(dbenv, error, error_set, fmt, ap)
 	} else
 #endif
 		defmsgs = defintro = "";
-	(void)snprintf(full_fmt, sizeof(full_fmt), "%s%s%s%s%s%s%s\n", prefix,
+	(void)snprintf(full_fmt, 4096, "%s%s%s%s%s%s%s\n", prefix,
 	    sep1, fmt, sep2, error_str, defintro, defmsgs);
 	(void)vfprintf(fp, full_fmt, ap);
 	(void)fflush(fp);
+	if (full_fmt) free(full_fmt);
+	return;
 }
 
 /*
@@ -683,9 +701,13 @@ __db_msgadd_ap(env, mbp, fmt, ap)
 	va_list ap;
 {
 	size_t len, nlen, olen;
-	char buf[2048];
+	char *buf = NULL;
 
-	len = (size_t)vsnprintf(buf, sizeof(buf), fmt, ap);
+	buf = malloc(2048);
+	if (!buf)
+		return;
+
+	len = (size_t)vsnprintf(buf, 2048, fmt, ap);
 
 	/*
 	 * There's a heap buffer in the ENV handle we use to aggregate the
@@ -698,17 +720,20 @@ __db_msgadd_ap(env, mbp, fmt, ap)
 		if (F_ISSET(mbp, DB_MSGBUF_PREALLOCATED)) {
 			memset(mbp->cur, '*', mbp->len - olen);
 			mbp->cur = mbp->buf + mbp->len;
-			return;
+			goto out;
 		}
 		nlen = mbp->len + len + (env == NULL ? 8192 : 256);
 		if (__os_realloc(env, nlen, &mbp->buf))
-			return;
+			goto out;
 		mbp->len = nlen;
 		mbp->cur = mbp->buf + olen;
 	}
 
 	memcpy(mbp->cur, buf, len + 1);
 	mbp->cur += len;
+out:
+	if (buf) free(buf);
+	return;
 }
 
 /*
@@ -764,12 +789,16 @@ void
 __db_repmsg(const ENV *env, const char *fmt, ...)
 {
 	va_list ap;
-	char buf[2048];
+	char *buf = NULL; 
 
+	buf = malloc(2048);
+	if (!buf) 
+		return;
 	va_start(ap, fmt);
-	(void)vsnprintf(buf, sizeof(buf), fmt, ap);
+	(void)vsnprintf(buf, 2048, fmt, ap);
 	__rep_msg(env, buf);
 	va_end(ap);
+	free(buf);
 }
 
 /*
@@ -785,10 +814,15 @@ __db_msgcall(dbenv, fmt, ap)
 	const char *fmt;
 	va_list ap;
 {
-	char buf[2048];
+	char *buf = NULL;
+
+	buf = malloc(2048);
+	if (!buf) 
+		return;
 
 	(void)vsnprintf(buf, sizeof(buf), fmt, ap);
 	dbenv->db_msgcall(dbenv, dbenv->db_msgpfx, buf);
+	free(buf);
 }
 
 /*
@@ -811,7 +845,11 @@ __db_msgfile(dbenv, fmt, ap)
 	FILE *fp;
 	char *prefix, *sep;
 	char prefix_buf[200];
-	char full_fmt[4096];
+	char *full_fmt = NULL;
+
+	full_fmt = malloc(4096);
+	if (!full_fmt)
+		return;
 
 	prefix = sep = "";
 	fp = dbenv == NULL ||
@@ -827,10 +865,12 @@ __db_msgfile(dbenv, fmt, ap)
 		sep = ": ";
 	}
 
-	(void)snprintf(full_fmt, sizeof(full_fmt), "%s%s%s\n",
+	(void)snprintf(full_fmt, 4096, "%s%s%s\n",
 	    prefix, sep, fmt);
 	(void)vfprintf(fp, full_fmt, ap);
 	(void)fflush(fp);
+	free(full_fmt);
+	return;
 }
 
 /*

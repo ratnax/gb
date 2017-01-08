@@ -1304,7 +1304,7 @@ __log_zero(env, from_lsn)
 	struct __db_filestart *filestart, *nextstart;
 	size_t nbytes, len, nw;
 	u_int32_t fn, mbytes, bytes;
-	u_int8_t buf[4096];
+	u_int8_t *buf = NULL; 
 	int ret;
 	char *fname;
 
@@ -1362,6 +1362,11 @@ __log_zero(env, from_lsn)
 		__os_free(env, fname);
 		return (ret);
 	}
+
+	buf = calloc(1, 4096);
+	if (!buf) 
+		return -ENOMEM;
+
 	__os_free(env, fname);
 	if ((ret = __os_ioinfo(env,
 	    NULL, dblp->lfhp, &mbytes, &bytes, NULL)) != 0)
@@ -1369,23 +1374,23 @@ __log_zero(env, from_lsn)
 	DB_ASSERT(env, (mbytes * MEGABYTE + bytes) >= from_lsn->offset);
 	len = (mbytes * MEGABYTE + bytes) - from_lsn->offset;
 
-	memset(buf, 0, sizeof(buf));
-
 	/* Initialize the write position. */
 	if ((ret = __os_seek(env, dblp->lfhp, 0, 0, from_lsn->offset)) != 0)
 		goto err;
 
 	while (len > 0) {
-		nbytes = len > sizeof(buf) ? sizeof(buf) : len;
+		nbytes = len > 4096 ? 4096 : len;
 		if ((ret =
 		    __os_write(env, dblp->lfhp, buf, nbytes, &nw)) != 0)
 			goto err;
 		len -= nbytes;
 	}
 
-err:	(void)__os_closehandle(env, dblp->lfhp);
+err:	
+	(void)__os_closehandle(env, dblp->lfhp);
 	dblp->lfhp = NULL;
 
+	if (buf) free(buf);
 	return (ret);
 }
 

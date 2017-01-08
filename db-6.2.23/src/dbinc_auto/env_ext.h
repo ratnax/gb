@@ -93,7 +93,7 @@ int __env_refresh __P((DB_ENV *, u_int32_t, int));
 int __env_get_open_flags __P((DB_ENV *, u_int32_t *));
 int __env_attach_regions __P((DB_ENV *,  u_int32_t, u_int32_t, int));
 int __db_apprec __P((ENV *, DB_THREAD_INFO *, DB_LSN *, DB_LSN *, int, u_int32_t));
-int __env_openfiles __P((ENV *, DB_LOGC *, void *, DBT *, DB_LSN *, DB_LSN *, double, int));
+int __env_openfiles __P((ENV *, DB_LOGC *, void *, DBT *, DB_LSN *, DB_LSN *, double_t, int));
 int __env_init_rec __P((ENV *, u_int32_t));
 int __env_attach __P((ENV *, u_int32_t *, int, int));
 int __env_turn_on __P((ENV *));

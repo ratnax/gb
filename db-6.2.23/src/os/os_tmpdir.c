@@ -32,9 +32,13 @@ __os_tmpdir(env, flags)
 {
 	DB_ENV *dbenv;
 	int isdir, ret;
-	char *tdir, tdir_buf[DB_MAXPATHLEN];
+	char *tdir, *tdir_buf = NULL;
 
 	dbenv = env->dbenv;
+
+	tdir_buf = malloc(DB_MAXPATHLEN);
+	if (!tdir_buf)
+		return -ENOMEM;
 
 	/* Use the environment if it's permitted and initialized. */
 	if (LF_ISSET(DB_USE_ENVIRON) ||
@@ -42,8 +46,9 @@ __os_tmpdir(env, flags)
 		/* POSIX: TMPDIR */
 		tdir = tdir_buf;
 		if ((ret = __os_getenv(
-		    env, "TMPDIR", &tdir, sizeof(tdir_buf))) != 0)
-			return (ret);
+		    env, "TMPDIR", &tdir, DB_MAXPATHLEN)) != 0)
+			goto out;
+
 		if (tdir != NULL && tdir[0] != '\0')
 			goto found;
 
@@ -52,26 +57,32 @@ __os_tmpdir(env, flags)
 		 */
 		tdir = tdir_buf;
 		if ((ret = __os_getenv(
-		    env, "TEMP", &tdir, sizeof(tdir_buf))) != 0)
-			return (ret);
+		    env, "TEMP", &tdir, DB_MAXPATHLEN)) != 0)
+			goto out;
+
 		if (tdir != NULL && tdir[0] != '\0')
 			goto found;
 
 		tdir = tdir_buf;
 		if ((ret = __os_getenv(
-		    env, "TMP", &tdir, sizeof(tdir_buf))) != 0)
-			return (ret);
+		    env, "TMP", &tdir, DB_MAXPATHLEN)) != 0)
+			goto out;
+
 		if (tdir != NULL && tdir[0] != '\0')
 			goto found;
 
 		/* Macintosh */
 		tdir = tdir_buf;
 		if ((ret = __os_getenv(
-		    env, "TempFolder", &tdir, sizeof(tdir_buf))) != 0)
-			return (ret);
+		    env, "TempFolder", &tdir, DB_MAXPATHLEN)) != 0) {
+			goto out;
+		}
 
-		if (tdir != NULL && tdir[0] != '\0')
-found:			return (__os_strdup(env, tdir, &dbenv->db_tmp_dir));
+		if (tdir != NULL && tdir[0] != '\0') {
+found:		
+			ret = __os_strdup(env, tdir, &dbenv->db_tmp_dir);
+			goto out;
+		}
 	}
 
 #ifdef macintosh
@@ -79,9 +90,11 @@ found:			return (__os_strdup(env, tdir, &dbenv->db_tmp_dir));
 	{FSSpec spec;
 
 		if (!Special2FSSpec(kTemporaryFolderType,
-		    kOnSystemDisk, 0, &spec))
-			return (__os_strdup(env,
+		    kOnSystemDisk, 0, &spec)) {
+			ret = (__os_strdup(env,
 			    FSp2FullPath(&spec), &dbenv->db_tmp_dir));
+			goto out;
+		}
 	}
 #endif
 #ifdef DB_WIN32
@@ -93,7 +106,7 @@ found:			return (__os_strdup(env, tdir, &dbenv->db_tmp_dir));
 		if (GetTempPath(DB_MAXPATHLEN, tpath) > 2) {
 			FROM_TSTRING(env, tpath, path, ret);
 			if (ret != 0)
-				return (ret);
+				goto out;
 
 			eos = path + strlen(path) - 1;
 			if (*eos == '\\' || *eos == '/')
@@ -102,7 +115,7 @@ found:			return (__os_strdup(env, tdir, &dbenv->db_tmp_dir));
 				ret = __os_strdup(env,
 				    path, &dbenv->db_tmp_dir);
 				FREE_STRING(env, path);
-				return (ret);
+				goto out;
 			}
 			FREE_STRING(env, path);
 		}
@@ -117,8 +130,10 @@ found:			return (__os_strdup(env, tdir, &dbenv->db_tmp_dir));
 	 */
 #define	DB_TEMP_DIRECTORY(n) {						\
 	char *__p = n;							\
-	if (__os_exists(env, __p, &isdir) == 0 && isdir != 0)		\
-		return (__os_strdup(env, __p, &dbenv->db_tmp_dir));	\
+	if (__os_exists(env, __p, &isdir) == 0 && isdir != 0) {		\
+		ret = (__os_strdup(env, __p, &dbenv->db_tmp_dir));	\
+		goto out;	\
+	}	\
 	}
 #ifdef DB_WIN32
 	DB_TEMP_DIRECTORY("/temp");
@@ -137,5 +152,9 @@ found:			return (__os_strdup(env, tdir, &dbenv->db_tmp_dir));
 	 * If we don't have any other place to store temporary files, store
 	 * them in the current directory.
 	 */
-	return (__os_strdup(env, "", &dbenv->db_tmp_dir));
+	ret = __os_strdup(env, "", &dbenv->db_tmp_dir);
+out:
+	if (tdir_buf) 
+		free(tdir_buf);
+	return ret;
 }

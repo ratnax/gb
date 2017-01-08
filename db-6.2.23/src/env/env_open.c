@@ -512,11 +512,15 @@ __env_config(dbenv, db_home, flagsp, mode)
 {
 	ENV *env;
 	u_int32_t flags;
-	char *home, home_buf[DB_MAXPATHLEN];
+	char *home, *home_buf;
 	int ret;
 
 	env = dbenv->env;
 	flags = *flagsp;
+
+	home_buf = malloc(DB_MAXPATHLEN);
+	if (!home_buf)
+		return -ENOMEM;
 
 	/*
 	 * Set the database home.
@@ -531,8 +535,8 @@ __env_config(dbenv, db_home, flagsp, mode)
 	    (LF_ISSET(DB_USE_ENVIRON_ROOT) && __os_isroot()))) {
 		home = home_buf;
 		if ((ret = __os_getenv(
-		    env, "DB_HOME", &home, sizeof(home_buf))) != 0)
-			return (ret);
+		    env, "DB_HOME", &home, DB_MAXPATHLEN)) != 0)
+			goto err;
 		/*
 		 * home set to NULL if __os_getenv failed to find DB_HOME.
 		 */
@@ -545,7 +549,7 @@ __env_config(dbenv, db_home, flagsp, mode)
 		if (env->db_home != NULL)
 			__os_free(env, env->db_home);
 		if ((ret = __os_strdup(env, home, &env->db_home)) != 0)
-			return (ret);
+			goto err;
 	}
 
 	/* Save a copy of the DB_ENV->open method flags. */
@@ -556,7 +560,7 @@ __env_config(dbenv, db_home, flagsp, mode)
 
 	/* Read the DB_CONFIG file. */
 	if ((ret = __env_read_db_config(env)) != 0)
-		return (ret);
+		goto err;
 
 #ifdef HAVE_SLICES
 	if (SLICES_ON(env))
@@ -573,10 +577,14 @@ __env_config(dbenv, db_home, flagsp, mode)
 	 * choose one.
 	 */
 	if (dbenv->db_tmp_dir == NULL && (ret = __os_tmpdir(env, flags)) != 0)
-		return (ret);
+		goto err;
 
 	*flagsp = flags;
-	return (0);
+	ret = 0;
+
+err:
+	if (home_buf) free(home_buf);
+	return (ret);
 }
 
 /*

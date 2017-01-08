@@ -1136,7 +1136,7 @@ __lock_put(env, lock)
 	DB_LOCK *lock;
 {
 	DB_LOCKTAB *lt;
-	int ret, run_dd;
+	int ret, run_dd = 0;
 
 	if (IS_RECOVERING(env))
 		return (0);

@@ -161,18 +161,28 @@ backup_dir_clean(dbenv, backup_dir, log_dir, remove_maxp, flags)
 	ENV *env;
 	int cnt, fcnt, ret, v;
 	const char *dir;
-	char **names, buf[DB_MAXPATHLEN], path[DB_MAXPATHLEN];
+	char **names, *buf = NULL, *path = NULL;
 
 	env = dbenv->env;
 
+	buf = malloc(DB_MAXPATHLEN);
+	if (!buf)
+		return ENOMEM;
+
+	path = malloc(DB_MAXPATHLEN);
+	if (!path) {
+		free(buf);
+		return ENOMEM;
+	}
 	/* We may be cleaning a log directory separate from the target. */
 	if (log_dir != NULL) {
 		if ((ret = __os_concat_path(buf,
-		    sizeof(buf), backup_dir, log_dir)) != 0) {
-			buf[sizeof(buf) - 1] = '\0';
+		    DB_MAXPATHLEN, backup_dir, log_dir)) != 0) {
+			buf[DB_MAXPATHLEN - 1] = '\0';
 			__db_errx(env,  DB_STR_A("0717",
 			    "%s: path too long", "%s"), buf);
-			return (EINVAL);
+			ret = EINVAL;
+			goto out;
 		}
 		dir = buf;
 	} else
@@ -184,7 +194,7 @@ backup_dir_clean(dbenv, backup_dir, log_dir, remove_maxp, flags)
 			return (0);
 		__db_err(env,
 		    ret, DB_STR_A("0718", "%s: directory read", "%s"), dir);
-		return (ret);
+		goto out;
 	}
 	for (cnt = fcnt; --cnt >= 0;) {
 		/*
@@ -200,17 +210,18 @@ backup_dir_clean(dbenv, backup_dir, log_dir, remove_maxp, flags)
 				*remove_maxp = v;
 		}
 		if ((ret = __os_concat_path(path,
-		    sizeof(path), dir, names[cnt])) != 0) {
-			path[sizeof(path) - 1] = '\0';
+		    DB_MAXPATHLEN, dir, names[cnt])) != 0) {
+			path[DB_MAXPATHLEN - 1] = '\0';
 			__db_errx(env, DB_STR_A("0714",
 			    "%s: path too long", "%s"), path);
-			return (EINVAL);
+			ret = EINVAL;
+			goto out;
 		}
 		if (FLD_ISSET(dbenv->verbose, DB_VERB_BACKUP))
 			__db_msg(env, DB_STR_A("0715", "removing %s",
 			    "%s"),  path);
 		if ((ret = __os_unlink(env, path, 0)) != 0)
-			return (ret);
+			goto out;
 	}
 
 	__os_dirfree(env, names, fcnt);
@@ -220,7 +231,10 @@ backup_dir_clean(dbenv, backup_dir, log_dir, remove_maxp, flags)
 		    "highest numbered log file removed: %d", "%d"),
 		    *remove_maxp);
 
-	return (0);
+out:
+	if (buf) free(buf);
+	if (path) free(path);
+	return ret;
 }
 
 /*
@@ -244,7 +258,7 @@ backup_data_copy(dbenv, file, from_dir, to_dir, log)
 	int ret, t_ret;
 	char *buf;
 	void *handle;
-	char from[DB_MAXPATHLEN], to[DB_MAXPATHLEN];
+	char *from = NULL, *to = NULL;
 
 	rfhp = wfhp = NULL;
 	handle = NULL;
@@ -252,16 +266,26 @@ backup_data_copy(dbenv, file, from_dir, to_dir, log)
 	env = dbenv->env;
 	backup = env->backup_handle;
 
+	from = malloc(DB_MAXPATHLEN);
+	if (!from)
+		return ENOMEM;
+
+	to = malloc(DB_MAXPATHLEN);
+	if (!to) {
+		free(from);
+		return ENOMEM;
+	}
+
 	if ((ret = __os_concat_path(from,
-	    sizeof(from), from_dir, file)) != 0) {
-		from[sizeof(from) - 1] = '\0';
+	    DB_MAXPATHLEN, from_dir, file)) != 0) {
+		from[DB_MAXPATHLEN - 1] = '\0';
 		__db_errx(env, DB_STR_A("0728",
 		     "%s: path too long", "%s"), from);
 		goto err;
 	}
 	if ((ret = __os_concat_path(to,
-	    sizeof(to), to_dir, file)) != 0) {
-		to[sizeof(to) - 1] = '\0';
+	    DB_MAXPATHLEN, to_dir, file)) != 0) {
+		to[DB_MAXPATHLEN - 1] = '\0';
 		__db_errx(env, DB_STR_A("0729",
 		     "%s: path too long", "%s"), to);
 		goto err;
@@ -273,6 +297,8 @@ backup_data_copy(dbenv, file, from_dir, to_dir, log)
 	if ((ret = __os_malloc(env, MEGABYTE, &buf)) != 0) {
 		__db_err(env, ret, DB_STR_A("0727",
 		    "%lu buffer allocation", "%lu"), (u_long)MEGABYTE);
+		free(from);
+		free(to);
 		return (ret);
 	}
 
@@ -347,6 +373,8 @@ done:	if (buf != NULL)
 	if (wfhp != NULL &&
 	    (t_ret = __os_closehandle(env, wfhp)) != 0 && ret == 0)
 		ret = t_ret;
+	if (from) free(from);
+	if (to) free(to);
 	return (ret);
 }
 
@@ -378,29 +406,45 @@ backup_read_data_dir(dbenv, ip, dir, backup_dir, flags)
 	int fcnt, ret;
 	size_t cnt, len;
 	const char *bd;
-	char **names, buf[DB_MAXPATHLEN], bbuf[DB_MAXPATHLEN];
-	char fullpath[DB_MAXPATHLEN];
+	char **names, *buf = NULL, *bbuf = NULL;
+	char *fullpath = NULL;
 	void (*savecall) (const DB_ENV *, const char *, const char *);
 
 	env = dbenv->env;
-	memset(bbuf, 0, sizeof(bbuf));
-	memset(fullpath, 0, sizeof(fullpath));
 	len = 0;
+
+	buf = malloc(DB_MAXPATHLEN);
+	if (!buf)
+		return ENOMEM;
+
+	bbuf = calloc(1, DB_MAXPATHLEN);
+	if (!bbuf) {
+		free(buf);
+		return ENOMEM;
+	}
+
+	fullpath = calloc(1, DB_MAXPATHLEN);
+	if (!fullpath) {
+		free(buf);
+		free(bbuf);
+		return ENOMEM;
+	}
 
 	bd = backup_dir;
 	if (!LF_ISSET(DB_BACKUP_SINGLE_DIR) && dir != env->db_home) {
-		cnt = sizeof(bbuf);
+		cnt = DB_MAXPATHLEN;
 		/* Build a path name to the destination. */
-		if ((ret = __os_concat_path(bbuf, sizeof(bbuf),
+		if ((ret = __os_concat_path(bbuf, DB_MAXPATHLEN,
 		    backup_dir, dir)) != 0 ||
-		    (((cnt = strlen(bbuf)) == sizeof(bbuf) ||
-		    (cnt == sizeof(bbuf) - 1 &&
+		    (((cnt = strlen(bbuf)) == DB_MAXPATHLEN ||
+		    (cnt == DB_MAXPATHLEN - 1 &&
 		    strchr(PATH_SEPARATOR, bbuf[cnt - 1]) == NULL)) &&
 		    LF_ISSET(DB_CREATE))) {
-			bbuf[sizeof(bbuf) - 1] = '\0';
+			bbuf[DB_MAXPATHLEN - 1] = '\0';
 			__db_errx(env, DB_STR_A("0720",
 			    "%s: path too long", "%s"), bbuf);
-			return (1);
+			ret = 1;
+			goto out;
 		}
 
 		/* Create the path. */
@@ -411,7 +455,7 @@ backup_read_data_dir(dbenv, ip, dir, backup_dir, flags)
 			if ((ret = __db_mkpath(env, bbuf)) != 0) {
 				__db_err(env,  ret, DB_STR_A("0721",
 				    "%s: cannot create", "%s"), bbuf);
-				return (ret);
+				goto out;
 			}
 			/* step on the trailing '/' */
 			bbuf[cnt] = '\0';
@@ -422,15 +466,16 @@ backup_read_data_dir(dbenv, ip, dir, backup_dir, flags)
 	if (!__os_abspath(dir) && dir != env->db_home) {
 		/* Build a path name to the source. */
 		if ((ret = __os_concat_path(buf,
-		    sizeof(buf), env->db_home, dir)) != 0) {
-			buf[sizeof(buf) - 1] = '\0';
+		    DB_MAXPATHLEN, env->db_home, dir)) != 0) {
+			buf[DB_MAXPATHLEN - 1] = '\0';
 			__db_errx(env, DB_STR_A("0722",
 			    "%s: path too long", "%s"), buf);
-			return (EINVAL);
+			ret = EINVAL;
+			goto out;
 		}
 		/* Save the original dir. */
 		if (!LF_ISSET(DB_BACKUP_SINGLE_DIR)) {
-			(void)snprintf(fullpath, sizeof(fullpath),
+			(void)snprintf(fullpath, DB_MAXPATHLEN,
 			    "%s%c%c", dir, PATH_SEPARATOR[0], '\0');
 			len = strlen(fullpath);
 		}
@@ -440,7 +485,7 @@ backup_read_data_dir(dbenv, ip, dir, backup_dir, flags)
 	if ((ret = __os_dirlist(env, dir, 0, &names, &fcnt)) != 0) {
 		__db_err(env, ret, DB_STR_A("0723", "%s: directory read",
 		    "%s"), dir);
-		return (ret);
+		goto out;
 	}
 	for (cnt = (size_t)fcnt; cnt-- > 0;) {
 		/*
@@ -489,7 +534,7 @@ backup_read_data_dir(dbenv, ip, dir, backup_dir, flags)
 		 */
 		if (len != 0)
 			(void)snprintf(fullpath + len,
-			    sizeof(fullpath) - len, "%s%c", names[cnt], '\0');
+			    DB_MAXPATHLEN - len, "%s%c", names[cnt], '\0');
 		ret = __db_dbbackup(dbenv, ip, names[cnt],
 		    backup_dir, flags, 0, len != 0 ? fullpath : NULL);
 
@@ -522,6 +567,10 @@ backup_read_data_dir(dbenv, ip, dir, backup_dir, flags)
 
 	__os_dirfree(env, names, fcnt);
 
+out:
+	if (buf) free(buf);
+	if (bbuf) free(bbuf);
+	if (fullpath) free(fullpath);
 	return (ret);
 }
 
@@ -542,13 +591,21 @@ backup_read_log_dir(dbenv, backup_dir, copy_minp, flags)
 	int ret, update, v;
 	const char *backupd;
 	char **begin, **names, *logd;
-	char from[DB_MAXPATHLEN], to[DB_MAXPATHLEN];
+	char *from = NULL, *to = NULL;
 
 	env = dbenv->env;
 	ret = 0;
 	begin = NULL;
-	memset(to, 0, sizeof(to));
 
+	from = malloc(DB_MAXPATHLEN);
+	if (!from)
+		return ENOMEM;
+
+	to = calloc(1, DB_MAXPATHLEN);
+	if (!to) {
+		free(from);
+		return ENOMEM;
+	}
 	/*
 	 * Figure out where the log files are and create the log
 	 * destination directory if necessary.
@@ -558,14 +615,14 @@ backup_read_log_dir(dbenv, backup_dir, copy_minp, flags)
 		logd = env->db_home;
 	else {
 		if (!LF_ISSET(DB_BACKUP_SINGLE_DIR)) {
-			cnt = sizeof(to);
+			cnt = DB_MAXPATHLEN;
 			if ((ret = __os_concat_path(to,
-			    sizeof(to), backup_dir, logd)) != 0 ||
-			    (((cnt = strlen(to)) == sizeof(to) ||
-			    (cnt == sizeof(to) - 1 &&
+			    DB_MAXPATHLEN, backup_dir, logd)) != 0 ||
+			    (((cnt = DB_MAXPATHLEN) == sizeof(to) ||
+			    (cnt == DB_MAXPATHLEN - 1 &&
 			    strchr(PATH_SEPARATOR, to[cnt - 1]) == NULL)) &&
 			    LF_ISSET(DB_CREATE))) {
-				to[sizeof(to) - 1] = '\0';
+				to[DB_MAXPATHLEN - 1] = '\0';
 				__db_errx(env, DB_STR_A("0733",
 				    "%s: path too long", "%s"), to);
 				goto err;
@@ -586,8 +643,8 @@ backup_read_log_dir(dbenv, backup_dir, copy_minp, flags)
 		}
 		if (!__os_abspath(logd)) {
 			if ((ret = __os_concat_path(from,
-			    sizeof(from), env->db_home, logd)) != 0) {
-				from[sizeof(from) - 1] = '\0';
+			    DB_MAXPATHLEN, env->db_home, logd)) != 0) {
+				from[DB_MAXPATHLEN - 1] = '\0';
 				__db_errx(env, DB_STR_A("0732",
 				    "%s: path too long", "%s"), from);
 				goto err;
@@ -628,8 +685,8 @@ again:	aflag = DB_ARCH_LOG;
 			*copy_minp = v;
 
 		if ((ret = __os_concat_path(from,
-		    sizeof(from), logd, *names)) != 0) {
-			from[sizeof(from) - 1] = '\0';
+		    DB_MAXPATHLEN, logd, *names)) != 0) {
+			from[DB_MAXPATHLEN - 1] = '\0';
 			__db_errx(env, DB_STR_A("0737",
 			    "%s: path too long", "%s"), from);
 			goto err;
@@ -645,8 +702,8 @@ again:	aflag = DB_ARCH_LOG;
 		 */
 		if (update) {
 			if ((ret = __os_concat_path(to,
-			    sizeof(to), backupd, *names)) != 0) {
-				to[sizeof(to) - 1] = '\0';
+			    DB_MAXPATHLEN, backupd, *names)) != 0) {
+				to[DB_MAXPATHLEN - 1] = '\0';
 				__db_errx(env, DB_STR_A("0738",
 				    "%s: path too long", "%s"), to);
 				goto err;
@@ -697,6 +754,8 @@ err:	if (logd != dbenv->db_log_dir && logd != env->db_home)
 	if (begin != NULL)
 		__os_ufree(env, begin);
 
+	if (from) free(from);
+	if (to) free(to);
 	return (ret);
 }
 

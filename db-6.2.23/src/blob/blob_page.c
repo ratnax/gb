@@ -213,7 +213,7 @@ __blob_repl(dbc, nval, blob_id, new_blob_id, size)
 	DB_LSN lsn;
 	ENV *env;
 	int ret, t_ret;
-	off_t current, old_size;
+	off_t cur, old_size;
 
 	fhp = new_fhp = NULL;
 	*new_blob_id = 0;
@@ -296,28 +296,28 @@ __blob_repl(dbc, nval, blob_id, new_blob_id, size)
 				goto err;
 
 			/* Copy remaining blob data into the new file. */
-			current = nval->doff + nval->dlen;
-			while (current < old_size) {
+			cur = nval->doff + nval->dlen;
+			while (cur < old_size) {
 				if (partial.ulen < MEGABYTE) {
 					if ((ret = __os_realloc(env,
 					    MEGABYTE, &partial.data)) != 0)
 						goto err;
 					partial.size = partial.ulen = MEGABYTE;
 				}
-				if ((old_size - current) < partial.ulen) {
+				if ((old_size - cur) < partial.ulen) {
 					partial.size =
-					(u_int32_t)(old_size - current);
+					(u_int32_t)(old_size - cur);
 				} else
 					partial.size = MEGABYTE;
 
 				if ((ret = __blob_file_read(env, fhp,
-				    &partial, current, partial.size)) != 0)
+				    &partial, cur, partial.size)) != 0)
 					goto err;
 				if ((ret = __blob_file_write(
 				    dbc, new_fhp, &partial, *size,
 				    *new_blob_id, size, DB_FOP_CREATE)) != 0)
 					goto err;
-				current += partial.size;
+				cur += partial.size;
 			}
 
 			/* Close the old file. */

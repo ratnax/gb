@@ -101,7 +101,8 @@ __log_printf_int(env, txnid, fmt, ap)
 {
 	DBT opdbt, msgdbt;
 	DB_LSN lsn;
-	char __logbuf[2048];	/* !!!: END OF THE STACK DON'T TRUST SPRINTF. */
+	char *__logbuf = NULL;	/* !!!: END OF THE STACK DON'T TRUST SPRINTF. */
+	int ret;
 
 	if (!DBENV_LOGGING(env)) {
 		__db_errx(env, DB_STR("2510",
@@ -109,14 +110,21 @@ __log_printf_int(env, txnid, fmt, ap)
 		return (EAGAIN);
 	}
 
+	__logbuf = malloc(2048);
+	if (!__logbuf)
+		return ENOMEM;
+
 	memset(&opdbt, 0, sizeof(opdbt));
 	opdbt.data = "DIAGNOSTIC";
 	opdbt.size = sizeof("DIAGNOSTIC") - 1;
 
 	memset(&msgdbt, 0, sizeof(msgdbt));
 	msgdbt.data = __logbuf;
-	msgdbt.size = (u_int32_t)vsnprintf(__logbuf, sizeof(__logbuf), fmt, ap);
+	msgdbt.size = (u_int32_t)vsnprintf(__logbuf, 2048, fmt, ap);
 
-	return (__db_debug_log(
+	ret = (__db_debug_log(
 	    env, txnid, &lsn, 0, &opdbt, -1, &msgdbt, NULL, 0));
+
+	free(__logbuf);
+	return ret;
 }

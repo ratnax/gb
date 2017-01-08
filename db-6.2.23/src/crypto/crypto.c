@@ -233,7 +233,7 @@ __crypto_decrypt_meta(env, dbp, mbuf, do_metachk)
 	u_int8_t *mbuf;
 	int do_metachk;
 {
-	DB dummydb;
+	DB *dummydb = NULL;
 	DBMETA *meta;
 	DB_CIPHER *db_cipher;
 	size_t pg_off;
@@ -248,8 +248,9 @@ __crypto_decrypt_meta(env, dbp, mbuf, do_metachk)
 	 * P_OVERHEAD below works.
 	 */
 	if (dbp == NULL) {
-		memset(&dummydb, 0, sizeof(DB));
-		dbp = &dummydb;
+		dummydb = dbp = calloc(1, sizeof(DB));
+		if (!dbp) 
+			return ENOMEM;
 	}
 
 	ret = 0;
@@ -271,8 +272,10 @@ __crypto_decrypt_meta(env, dbp, mbuf, do_metachk)
 	 * Ugly check to jump out if this format is older than what we support.
 	 * This works because we do not encrypt the page header.
 	 */
-	if (meta->magic == DB_HASHMAGIC && meta->version <= 5)
-		return (0);
+	if (meta->magic == DB_HASHMAGIC && meta->version <= 5) {
+		ret = 0;
+		goto out;
+	}
 
 	/*
 	 * Meta-pages may be encrypted for DBMETASIZE bytes.  If we have a
@@ -296,7 +299,8 @@ __crypto_decrypt_meta(env, dbp, mbuf, do_metachk)
 			if (!CRYPTO_ON(env)) {
 				__db_errx(env, DB_STR("0178",
     "Encrypted database: no encryption flag specified"));
-				return (EINVAL);
+				ret = EINVAL;
+				goto out;
 			}
 			/*
 			 * User has a correct, secure env and has encountered
@@ -318,7 +322,8 @@ __crypto_decrypt_meta(env, dbp, mbuf, do_metachk)
 			__db_errx(env, DB_STR("0179",
 			    "Database encrypted using a different algorithm"));
 			F_CLR(dbp, added_flags);
-			return (EINVAL);
+			ret = EINVAL;
+			goto out;
 		}
 		DB_ASSERT(env, F_ISSET(dbp, DB_AM_CHKSUM));
 		iv = ((BTMETA *)mbuf)->iv;
@@ -338,13 +343,14 @@ alg_retry:
 			    db_cipher->data, iv, mbuf + pg_off,
 			    DBMETASIZE - pg_off))) {
 				F_CLR(dbp, added_flags);
-				return (ret);
+				goto out;
 			}
 			if (((BTMETA *)meta)->crypto_magic != meta->magic) {
 				__db_errx(env, DB_STR("0180",
 				    "Invalid password"));
 				F_CLR(dbp, added_flags);
-				return (EINVAL);
+				ret = EINVAL;
+				goto out;
 			}
 			/*
 			 * Success here.  The algorithm asked for and the one
@@ -353,7 +359,8 @@ alg_retry:
 			 * indicating the password is right.  All is right
 			 * with the world.
 			 */
-			return (0);
+			ret = 0;
+			goto out;
 		}
 		/*
 		 * If we get here, CIPHER_ANY must be set.
@@ -383,8 +390,12 @@ alg_retry:
 		 */
 		__db_errx(env, DB_STR("0181",
 		    "Unencrypted database with a supplied encryption key"));
+		ret = EINVAL;
+		goto out;
 		return (EINVAL);
 	}
+out:
+	if (dummydb) free(dummydb);
 	return (ret);
 }
 

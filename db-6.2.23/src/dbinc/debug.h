@@ -202,7 +202,7 @@ typedef enum {
  * Hook for testing recovery at various places in the create/delete paths.
  * Hook for testing subdb locks.
  */
-#if CONFIG_TEST
+#ifdef CONFIG_TEST
 #define	DB_TEST_SUBLOCKS(env, flags) do {				\
 	if ((env)->test_abort == DB_TEST_SUBDB_LOCKS)			\
 		(flags) |= DB_LOCK_NOWAIT;				\

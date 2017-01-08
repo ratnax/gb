@@ -23,7 +23,7 @@ printf(const char *fmt, ...)
 {
 	va_list ap;
 	size_t len;
-	char buf[2048];    /* !!!: END OF THE STACK DON'T TRUST SPRINTF. */
+	char buf[512];    /* !!!: END OF THE STACK DON'T TRUST SPRINTF. */
 
 	va_start(ap, fmt);
 	len = (size_t)vsnprintf(buf, sizeof(buf), fmt, ap);
@@ -51,7 +51,7 @@ fprintf(FILE *fp, const char *fmt, ...)
 {
 	va_list ap;
 	size_t len;
-	char buf[2048];    /* !!!: END OF THE STACK DON'T TRUST SPRINTF. */
+	char buf[512];    /* !!!: END OF THE STACK DON'T TRUST SPRINTF. */
 
 	va_start(ap, fmt);
 	len = vsnprintf(buf, sizeof(buf), fmt, ap);
@@ -81,7 +81,7 @@ vfprintf(fp, fmt, ap)
 	va_list ap;
 {
 	size_t len;
-	char buf[2048];    /* !!!: END OF THE STACK DON'T TRUST SPRINTF. */
+	char buf[512];    /* !!!: END OF THE STACK DON'T TRUST SPRINTF. */
 
 	len = vsnprintf(buf, sizeof(buf), fmt, ap);
 

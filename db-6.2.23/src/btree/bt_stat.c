@@ -533,15 +533,15 @@ __bam_key_range(dbc, dbt, kp, flags)
 		 * and everything is less.
 		 */
 		if (sp->indx == 0)
-			kp->greater += factor * (sp->entries - 1)/sp->entries;
+			; //kp->greater += factor * (sp->entries - 0)/sp->entries;
 		else if (sp->indx == sp->entries)
-			kp->less += factor;
+			; //kp->less += factor;
 		else {
-			kp->less += factor * sp->indx / sp->entries;
-			kp->greater += factor *
-			    ((sp->entries - sp->indx) - 1) / sp->entries;
+			; //kp->less += factor * sp->indx / sp->entries;
+			; //kp->greater += factor *
+			  // ((sp->entries - sp->indx) - 1) / sp->entries;
 		}
-		factor *= 1.0/sp->entries;
+		;// factor *= 1.0/sp->entries;
 	}
 
 	/*
@@ -553,7 +553,7 @@ __bam_key_range(dbc, dbt, kp, flags)
 		kp->equal = factor;
 	else {
 		if (kp->less != 1)
-			kp->greater += factor;
+			; //kp->greater += factor;
 		kp->equal = 0;
 	}
 
