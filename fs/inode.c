@@ -19,12 +19,15 @@
 #include <linux/vfs.h>
 #include <linux/writeback.h>
 
+#include <db.h>
 #include "keys.h"
 
 static int gbfs_write_inode(struct inode *inode,
 		struct writeback_control *wbc);
 static int gbfs_statfs(struct dentry *dentry, struct kstatfs *buf);
 static int gbfs_remount (struct super_block * sb, int * flags, char * data);
+static int __kdb_open(struct gbfs_sb_info *sbi);
+static void __kdb_close(struct gbfs_sb_info *sbi);
 
 static void gbfs_evict_inode(struct inode *inode)
 {
@@ -43,15 +46,7 @@ static void gbfs_put_super(struct super_block *sb)
 {
 	struct gbfs_sb_info *sbi = gbfs_sb(sb);
 
-	if (sbi->dbp) {
-		int ret;
-	   
-		ret	= sbi->dbp->sync(sbi->dbp, 0);
-		printk("gbfs: btree sync status (%d).\n", ret);
-
-		ret = sbi->dbp->close(sbi->dbp);
-		printk("gbfs: btree close status (%d).\n", ret);
-	}
+	__kdb_close(sbi);
 	sb->s_fs_info = NULL;
 	kfree(sbi);
 }
@@ -93,6 +88,96 @@ static int gbfs_remount (struct super_block * sb, int * flags, char * data)
 	return 0;
 }
 
+static void __kdb_close(struct gbfs_sb_info *sbi)
+{
+	int ret;
+	if (sbi->dbp) {
+		ret = sbi->dbp->close(sbi->dbp, 0);
+		if (ret != 0) {
+			sbi->env->err(sbi->env, ret, "Database close failed.");
+			return;
+		} else {
+			sbi->dbp = NULL;
+		}
+	}
+	if (sbi->env) {
+		ret = sbi->env->close(sbi->env, 0);
+		if (ret != 0) {
+			printk(KERN_ERR "environment close failed: %s\n", 
+							db_strerror(ret));
+		} else {
+			sbi->env = NULL;
+		}
+	}
+}
+
+static int __kdb_open(struct gbfs_sb_info *sbi)
+{
+	int ret, ret_c;
+	u_int32_t db_flags, env_flags;
+	DB *dbp;
+	DB_ENV *envp;
+	const char *db_home_dir = "/media/x/";
+	const char *file_name = "mydb.db";
+
+	dbp = NULL;
+	envp = NULL;
+	/* Open the environment */
+	ret = db_env_create(&envp, 0);
+	if (ret != 0) {
+		printk(KERN_ERR "Error creating environment handle: %s\n",
+				db_strerror(ret));
+		return ret;
+	}
+	env_flags = DB_CREATE | DB_PRIVATE | DB_INIT_TXN | 
+				DB_INIT_LOCK | DB_INIT_LOG | DB_INIT_MPOOL;
+
+	ret = envp->open(envp, db_home_dir, env_flags, 0);
+	if (ret != 0) {
+		printk(KERN_ERR "Error opening environment: %s\n", db_strerror(ret));
+		goto err;
+	}
+	/* Initialize the DB handle */
+	ret = db_create(&dbp, envp, 0);
+	if (ret != 0) {
+		envp->err(envp, ret, "Database creation failed");
+		goto err;
+	}
+	db_flags = DB_CREATE | DB_AUTO_COMMIT;
+	ret = dbp->open(dbp, /* Pointer to the database */
+			NULL, /* Txn pointer */
+			file_name, /* File name */
+			NULL, /* Logical db name */
+			DB_BTREE, /* Database type (using btree) */
+			db_flags, /* Open flags */
+			0); /* File mode. Using defaults */
+	if (ret != 0) {
+		envp->err(envp, ret, "Database '%s' open failed", file_name);
+		goto err;
+	}
+
+	sbi->env = envp;
+	sbi->dbp = dbp;
+	return 0;
+err:
+	if (dbp) {
+		ret_c = dbp->close(dbp, 0);
+		if (ret_c != 0) {
+			envp->err(envp, ret_c, "Database close failed.");
+			ret = ret_c;
+		}
+	}
+	if (envp) {
+		ret_c = envp->close(envp, 0);
+		if (ret_c != 0) {
+			printk(KERN_ERR "environment close failed: %s\n", 
+							db_strerror(ret_c));
+			ret = ret_c;
+		}
+	}
+	return ret;
+}
+
 static int gbfs_fill_super(struct super_block *s, void *data, int silent)
 {
 	struct gbfs_super_block *ms;
@@ -128,9 +213,10 @@ static int gbfs_fill_super(struct super_block *s, void *data, int silent)
 		goto out_no_fs;
 
 
-	sbi->dbp = dbopen("/media/x/gbdev", O_CREAT|O_RDWR, 
-			S_IRUSR | S_IWUSR, DB_BTREE, NULL);
-	printk("dbopen: %p\n", sbi->dbp);
+	ret = __kdb_open(sbi);
+	if (ret)
+		goto out;
+
 
 	/* set up enough so that it can read an inode */
 	s->s_op = &gbfs_sops;
@@ -208,6 +294,9 @@ static int gbfs_writepage(struct page *page, struct writeback_control *wbc)
 	gbfs_data_key_t key;
 	DBT kdbt, vdbt;
 
+	memset(&kdbt, 0, sizeof(DBT));
+	memset(&vdbt, 0, sizeof(DBT));
+
 	key.type = GBFS_DB_PAGE;
 	key.ino = inode->i_ino;
 	key.pgoff = page_offset(page);
@@ -221,7 +310,7 @@ static int gbfs_writepage(struct page *page, struct writeback_control *wbc)
 
     set_page_writeback(page);
 
-	err = sbi->dbp->put(sbi->dbp, &kdbt, &vdbt, 0); 
+	err = sbi->dbp->put(sbi->dbp, NULL, &kdbt, &vdbt, DB_OVERWRITE_DUP); 
     end_page_writeback(page);
     unlock_page(page);
 
@@ -240,6 +329,9 @@ static int gbfs_readpage(struct file *file, struct page *page)
 	gbfs_data_key_t key;
 	DBT kdbt, vdbt;
 
+	memset(&kdbt, 0, sizeof(DBT));
+	memset(&vdbt, 0, sizeof(DBT));
+
 	key.type = GBFS_DB_PAGE;
 	key.ino = inode->i_ino;
 	key.pgoff = page_offset(page);
@@ -248,20 +340,25 @@ static int gbfs_readpage(struct file *file, struct page *page)
 	kdbt.size = sizeof(key);
 
 	kmap(page);
-	err = sbi->dbp->get(sbi->dbp, &kdbt, &vdbt, 0);
+	err = sbi->dbp->get(sbi->dbp, NULL, &kdbt, &vdbt, 0);
 	if (!err) {
 		memcpy(page_address(page), vdbt.data, PAGE_SIZE);
 		SetPageUptodate(page);
-	} else if (err == 1) {
+	} else if (err == DB_NOTFOUND) {
 		memset(page_address(page), 0, PAGE_SIZE);
 		SetPageUptodate(page);
-		err = 0;
 	}
-	unlock_page(page);
+  	unlock_page(page);
 
 	printk(KERN_ERR "GBFS: readpage: %lu %llu %d\n", inode->i_ino, 
 			page_offset(page), err);
 	kunmap(page);
+	if (err) {
+		if (err == DB_NOTFOUND)
+			err = 0;
+		else
+			err = -EIO;
+	}
 	return err;	
 }
 
@@ -355,6 +452,9 @@ int gbfs_update_inode(struct inode *inode, struct gbfs_inode *raw_inode)
 	gbfs_inode_key_t key;
 	DBT kdbt, vdbt;
 
+	memset(&kdbt, 0, sizeof(DBT));
+	memset(&vdbt, 0, sizeof(DBT));
+
 	key.type = GBFS_DB_INODE;
 	key.ino = inode->i_ino;
 
@@ -364,7 +464,7 @@ int gbfs_update_inode(struct inode *inode, struct gbfs_inode *raw_inode)
 	vdbt.data = raw_inode;
 	vdbt.size = sizeof(struct gbfs_inode);
 
-	err = sbi->dbp->put(sbi->dbp, &kdbt, &vdbt, 0); 
+	err = sbi->dbp->put(sbi->dbp, NULL, &kdbt, &vdbt, DB_OVERWRITE_DUP); 
 
 	printk(KERN_ERR "GBFS: writeinode: %lu %d\n", inode->i_ino, err); 
 	kfree(raw_inode);

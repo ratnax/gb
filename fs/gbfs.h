@@ -16,6 +16,7 @@ struct gbfs_sb_info {
 	int s_namelen;
 	struct gbfs_super_block * s_ms;
 	DB *dbp;
+	DB_ENV *env;
 	unsigned short s_mount_state;
 	unsigned short s_max_links;
 };

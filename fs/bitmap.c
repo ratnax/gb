@@ -17,6 +17,7 @@
 #include <linux/bitops.h>
 #include <linux/sched.h>
 
+#include <db.h>
 #include "keys.h"
 
 void
@@ -40,6 +41,9 @@ gbfs_raw_inode(struct super_block *sb, ino_t ino)
 	gbfs_inode_key_t key;
 	DBT kdbt, vdbt;
 
+	memset(&kdbt, 0, sizeof(DBT));
+	memset(&vdbt, 0, sizeof(DBT));	
+
 	raw_inode = kmalloc(sizeof(struct gbfs_inode), GFP_KERNEL);
 	if (!raw_inode) 
 		return NULL;
@@ -50,11 +54,11 @@ gbfs_raw_inode(struct super_block *sb, ino_t ino)
 	kdbt.data = &key;
 	kdbt.size = sizeof(key);
 
-	err = sbi->dbp->get(sbi->dbp, &kdbt, &vdbt, 0);
+	err = sbi->dbp->get(sbi->dbp, NULL, &kdbt, &vdbt, 0);
 	if (!err) {
 		BUG_ON(vdbt.size != sizeof(struct gbfs_inode));
 		memcpy(raw_inode, vdbt.data, sizeof(struct gbfs_inode));
-	} else if (err == 1) {
+	} else if (err == DB_NOTFOUND) {
 		if (ino == GBFS_ROOT_INO) {
 			minix_raw_inode(raw_inode);
 		} else {

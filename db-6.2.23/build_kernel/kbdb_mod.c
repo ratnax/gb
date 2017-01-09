@@ -1,7 +1,8 @@
 #include <linux/module.h>
 
 #include <db.h>
-void test(void)
+#if 0
+static void test(void)
 {
 	int ret, ret_c;
 	u_int32_t db_flags, env_flags;
@@ -10,6 +11,7 @@ void test(void)
 	const char *db_home_dir = "/media/x/";
 	const char *file_name = "mydb.db";
 
+	return;
 	dbp = NULL;
 	envp = NULL;
 	/* Open the environment */
@@ -73,10 +75,10 @@ err:
 	}
 	printk(KERN_ERR "Test:%d", ret);
 }
+#endif
 
 static int __init init_kbdb_fs(void)
 {
-	test();
 	return 0; 
 }
 

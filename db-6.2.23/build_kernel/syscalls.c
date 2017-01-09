@@ -324,488 +324,15 @@ exit1:
 }
 
 /* sys_select */
-
-#include <linux/time.h>
-#include <linux/time64.h>
-#include <linux/timekeeping.h>
-
-#define MAX_SLACK	(100 * NSEC_PER_MSEC)
-
-static long __estimate_accuracy(struct timespec64 *tv)
-{
-	long slack;
-	int divfactor = 1000;
-
-	if (tv->tv_sec < 0)
-		return 0;
-
-	if (task_nice(current) > 0)
-		divfactor = divfactor / 5;
-
-	if (tv->tv_sec > MAX_SLACK / (NSEC_PER_SEC/divfactor))
-		return MAX_SLACK;
-
-	slack = tv->tv_nsec / divfactor;
-	slack += tv->tv_sec * (NSEC_PER_SEC/divfactor);
-
-	if (slack > MAX_SLACK)
-		return MAX_SLACK;
-
-	return slack;
-}
-
-u64 select_estimate_accuracy(struct timespec64 *tv)
-{
-	u64 ret;
-	struct timespec64 now;
-
-	/*
-	 * Realtime tasks get a slack of 0 for obvious reasons.
-	 */
-
-	if (rt_task(current))
-		return 0;
-
-	ktime_get_ts64(&now);
-	now = timespec64_sub(*tv, now);
-	ret = __estimate_accuracy(&now);
-	if (ret < current->timer_slack_ns)
-		return current->timer_slack_ns;
-	return ret;
-}
-
-#define FDS_IN(fds, n)		(fds->in + n)
-#define FDS_OUT(fds, n)		(fds->out + n)
-#define FDS_EX(fds, n)		(fds->ex + n)
-
-#define BITS(fds, n)	(*FDS_IN(fds, n)|*FDS_OUT(fds, n)|*FDS_EX(fds, n))
-
-static int max_select_fd(unsigned long n, fd_set_bits *fds)
-{
-	unsigned long *open_fds;
-	unsigned long set;
-	int max;
-	struct fdtable *fdt;
-
-	/* handle last in-complete long-word first */
-	set = ~(~0UL << (n & (BITS_PER_LONG-1)));
-	n /= BITS_PER_LONG;
-	fdt = files_fdtable(current->files);
-	open_fds = fdt->open_fds + n;
-	max = 0;
-	if (set) {
-		set &= BITS(fds, n);
-		if (set) {
-			if (!(set & ~*open_fds))
-				goto get_max;
-			return -EBADF;
-		}
-	}
-	while (n) {
-		open_fds--;
-		n--;
-		set = BITS(fds, n);
-		if (!set)
-			continue;
-		if (set & ~*open_fds)
-			return -EBADF;
-		if (max)
-			continue;
-get_max:
-		do {
-			max++;
-			set >>= 1;
-		} while (set);
-		max += n * BITS_PER_LONG;
-	}
-
-	return max;
-}
-
-#define POLLIN_SET (POLLRDNORM | POLLRDBAND | POLLIN | POLLHUP | POLLERR)
-#define POLLOUT_SET (POLLWRBAND | POLLWRNORM | POLLOUT | POLLERR)
-#define POLLEX_SET (POLLPRI)
-
-static inline void wait_key_set(poll_table *wait, unsigned long in,
-				unsigned long out, unsigned long bit,
-				unsigned int ll_flag)
-{
-	wait->_key = POLLEX_SET | ll_flag;
-	if (in & bit)
-		wait->_key |= POLLIN_SET;
-	if (out & bit)
-		wait->_key |= POLLOUT_SET;
-}
-
-static inline u64 busy_loop_us_clock(void)
-{
-	return local_clock() >> 10;
-}
-
-/* in poll/select we use the global sysctl_net_ll_poll value */
-static inline unsigned long busy_loop_end_time(void)
-{
-	return busy_loop_us_clock();
-}
-
-static inline bool busy_loop_timeout(unsigned long end_time)
-{
-	unsigned long now = busy_loop_us_clock();
-
-	return time_after(now, end_time);
-}
-
-int do_select(int n, fd_set_bits *fds, struct timespec64 *end_time)
-{
-	ktime_t expire, *to = NULL;
-	struct poll_wqueues table;
-	poll_table *wait;
-	int retval, i, timed_out = 0;
-	u64 slack = 0;
-	unsigned int busy_flag = 0;
-	unsigned long busy_end = 0;
-
-	rcu_read_lock();
-	retval = max_select_fd(n, fds);
-	rcu_read_unlock();
-
-	if (retval < 0)
-		return retval;
-	n = retval;
-
-	poll_initwait(&table);
-	wait = &table.pt;
-	if (end_time && !end_time->tv_sec && !end_time->tv_nsec) {
-		wait->_qproc = NULL;
-		timed_out = 1;
-	}
-
-	if (end_time && !timed_out)
-		slack = select_estimate_accuracy(end_time);
-
-	retval = 0;
-	for (;;) {
-		unsigned long *rinp, *routp, *rexp, *inp, *outp, *exp;
-		bool can_busy_loop = false;
-
-		inp = fds->in; outp = fds->out; exp = fds->ex;
-		rinp = fds->res_in; routp = fds->res_out; rexp = fds->res_ex;
-
-		for (i = 0; i < n; ++rinp, ++routp, ++rexp) {
-			unsigned long in, out, ex, all_bits, bit = 1, mask, j;
-			unsigned long res_in = 0, res_out = 0, res_ex = 0;
-
-			in = *inp++; out = *outp++; ex = *exp++;
-			all_bits = in | out | ex;
-			if (all_bits == 0) {
-				i += BITS_PER_LONG;
-				continue;
-			}
-
-			for (j = 0; j < BITS_PER_LONG; ++j, ++i, bit <<= 1) {
-				struct fd f;
-				if (i >= n)
-					break;
-				if (!(bit & all_bits))
-					continue;
-				f = fdget(i);
-				if (f.file) {
-					const struct file_operations *f_op;
-					f_op = f.file->f_op;
-					mask = DEFAULT_POLLMASK;
-					if (f_op->poll) {
-						wait_key_set(wait, in, out,
-							     bit, busy_flag);
-						mask = (*f_op->poll)(f.file, wait);
-					}
-					fdput(f);
-					if ((mask & POLLIN_SET) && (in & bit)) {
-						res_in |= bit;
-						retval++;
-						wait->_qproc = NULL;
-					}
-					if ((mask & POLLOUT_SET) && (out & bit)) {
-						res_out |= bit;
-						retval++;
-						wait->_qproc = NULL;
-					}
-					if ((mask & POLLEX_SET) && (ex & bit)) {
-						res_ex |= bit;
-						retval++;
-						wait->_qproc = NULL;
-					}
-					/* got something, stop busy polling */
-					if (retval) {
-						can_busy_loop = false;
-						busy_flag = 0;
-
-					/*
-					 * only remember a returned
-					 * POLL_BUSY_LOOP if we asked for it
-					 */
-					} else if (busy_flag & mask)
-						can_busy_loop = true;
-
-				}
-			}
-			if (res_in)
-				*rinp = res_in;
-			if (res_out)
-				*routp = res_out;
-			if (res_ex)
-				*rexp = res_ex;
-			cond_resched();
-		}
-		wait->_qproc = NULL;
-		if (retval || timed_out || signal_pending(current))
-			break;
-		if (table.error) {
-			retval = table.error;
-			break;
-		}
-
-		/* only if found POLL_BUSY_LOOP sockets && not out of time */
-		if (can_busy_loop && !need_resched()) {
-			if (!busy_end) {
-				busy_end = busy_loop_end_time();
-				continue;
-			}
-			if (!busy_loop_timeout(busy_end))
-				continue;
-		}
-		busy_flag = 0;
-
-		/*
-		 * If this is the first loop and we have a timeout
-		 * given, then we convert to ktime_t and set the to
-		 * pointer to the expiry value.
-		 */
-		if (end_time && !to) {
-			expire = timespec64_to_ktime(*end_time);
-			to = &expire;
-		}
-
-		if (!poll_schedule_timeout(&table, TASK_INTERRUPTIBLE,
-					   to, slack))
-			timed_out = 1;
-	}
-
-	poll_freewait(&table);
-
-	return retval;
-}
-
-
-static inline
-int __get_fd_set(unsigned long nr, void *ufdset, unsigned long *fdset)
-{
-	nr = FDS_BYTES(nr);
-	if (ufdset) 
-		memcpy(fdset, ufdset, nr);
-	else 
-		memset(fdset, 0, nr);
-	return 0;
-}
-
-static inline unsigned long __must_check
-__set_fd_set(unsigned long nr, void *ufdset, unsigned long *fdset)
-{
-	if (ufdset)
-		memcpy(ufdset, fdset, FDS_BYTES(nr));
-	return 0;
-}
-
-static inline
-void __zero_fd_set(unsigned long nr, unsigned long *fdset)
-{
-	memset(fdset, 0, FDS_BYTES(nr));
-}
-
-static int __core_sys_select(int n, fd_set *inp, fd_set *outp,
-		fd_set *exp, struct timespec64 *end_time)
-{
-	fd_set_bits fds;
-	void *bits;
-	int ret, max_fds;
-	size_t size, alloc_size;
-	struct fdtable *fdt;
-	/* Allocate small arguments on the stack to save memory and be faster */
-	long stack_fds[SELECT_STACK_ALLOC/sizeof(long)];
-
-	ret = -EINVAL;
-	if (n < 0)
-		goto out_nofds;
-
-	/* max_fds can increase, so grab it once to avoid race */
-	rcu_read_lock();
-	fdt = files_fdtable(current->files);
-	max_fds = fdt->max_fds;
-	rcu_read_unlock();
-	if (n > max_fds)
-		n = max_fds;
-
-	/*
-	 *      * We need 6 bitmaps (in/out/ex for both incoming and outgoing),
-	 *           * since we used fdset we need to allocate memory in units of
-	 *                * long-words. 
-	 *                     */
-	size = FDS_BYTES(n);
-	bits = stack_fds;
-	if (size > sizeof(stack_fds) / 6) {
-		/* Not enough space in on-stack array; must use kmalloc */
-		ret = -ENOMEM;
-		if (size > (SIZE_MAX / 6))
-			goto out_nofds;
-
-		alloc_size = 6 * size;
-		bits = kmalloc(alloc_size, GFP_KERNEL|__GFP_NOWARN);
-		if (!bits && alloc_size > PAGE_SIZE)
-			bits = vmalloc(alloc_size);
-
-		if (!bits)
-			goto out_nofds;
-	}
-	fds.in      = bits;
-	fds.out     = bits +   size;
-	fds.ex      = bits + 2*size;
-	fds.res_in  = bits + 3*size;
-	fds.res_out = bits + 4*size;
-	fds.res_ex  = bits + 5*size;
-
-	if ((ret = __get_fd_set(n, inp, fds.in)) ||
-			(ret = __get_fd_set(n, outp, fds.out)) ||
-			(ret = __get_fd_set(n, exp, fds.ex)))
-		goto out;
-
-	__zero_fd_set(n, fds.res_in);
-	__zero_fd_set(n, fds.res_out);
-	__zero_fd_set(n, fds.res_ex);
-
-	ret = do_select(n, &fds, end_time);
-
-	if (ret < 0)
-		goto out;
-	if (!ret) {
-		ret = -ERESTARTNOHAND;
-		if (signal_pending(current))
-			goto out;
-		ret = 0;
-	}
-
-	if (__set_fd_set(n, inp, fds.res_in) ||
-			__set_fd_set(n, outp, fds.res_out) ||
-			__set_fd_set(n, exp, fds.res_ex))
-		ret = -EFAULT;
-
-out:
-	    if (bits != stack_fds)
-			        kvfree(bits);
-out_nofds:
-		    return ret;
-}
-
-struct timespec64 timespec64_add_safe(const struct timespec64 lhs,
-		const struct timespec64 rhs)
-{       
-	struct timespec64 res;
-
-	set_normalized_timespec64(&res, (timeu64_t) lhs.tv_sec + rhs.tv_sec,
-			lhs.tv_nsec + rhs.tv_nsec);
-
-	if (unlikely(res.tv_sec < lhs.tv_sec || res.tv_sec < rhs.tv_sec)) {
-		res.tv_sec = TIME64_MAX;
-		res.tv_nsec = 0;
-	}
-
-	return res;
-}       
-
-static int __poll_select_set_timeout(struct timespec64 *to, time64_t sec, 
-							long nsec)
-{
-	struct timespec64 ts = {.tv_sec = sec, .tv_nsec = nsec};
-
-	if (!timespec64_valid(&ts))
-		return -EINVAL;
-
-	/* Optimize for the zero timeout value here */
-	if (!sec && !nsec) {
-		to->tv_sec = to->tv_nsec = 0;
-	} else {
-		ktime_get_ts64(to);
-		*to = timespec64_add_safe(*to, ts);
-	}
-	return 0;
-}
-
-static int poll_select_copy_remaining(struct timespec64 *end_time,
-				      void *p, int timeval, int ret)
-{
-	struct timespec64 rts64;
-	struct timespec rts;
-	struct timeval rtv;
-
-	if (!p)
-		return ret;
-
-	if (current->personality & STICKY_TIMEOUTS)
-		goto sticky;
-
-	/* No update for zero timeout */
-	if (!end_time->tv_sec && !end_time->tv_nsec)
-		return ret;
-
-	ktime_get_ts64(&rts64);
-	rts64 = timespec64_sub(*end_time, rts64);
-	if (rts64.tv_sec < 0)
-		rts64.tv_sec = rts64.tv_nsec = 0;
-
-	rts = timespec64_to_timespec(rts64);
-
-	if (timeval) {
-		if (sizeof(rtv) > sizeof(rtv.tv_sec) + sizeof(rtv.tv_usec))
-			memset(&rtv, 0, sizeof(rtv));
-		rtv.tv_sec = rts64.tv_sec;
-		rtv.tv_usec = rts64.tv_nsec / NSEC_PER_USEC;
-
-		memcpy(p, &rtv, sizeof(rtv));
-	} else {
-		memcpy(p, &rts, sizeof(rts));
-	}
-
-	/*
-	 * If an application puts its timeval in read-only memory, we
-	 * don't want the Linux-specific update to the timeval to
-	 * cause a fault after the select has completed
-	 * successfully. However, because we're not updating the
-	 * timeval, we can't restart the system call.
-	 */
-
-sticky:
-	if (ret == -ERESTARTNOHAND)
-		ret = -EINTR;
-	return ret;
-}
-
 int select(int n, fd_set *inp, fd_set *outp, fd_set *exp, struct timeval *tv)
 {
-	struct timespec64 end_time, *to = NULL;
-	int ret;
+	BUG_ON(n || inp || outp || exp);
 
 	if (tv) {
-		to = &end_time;
-		if (__poll_select_set_timeout(to,
-					tv->tv_sec + (tv->tv_usec / USEC_PER_SEC),
-					(tv->tv_usec % USEC_PER_SEC) * NSEC_PER_USEC))
-			return -EINVAL;
+		unsigned long secs = tv->tv_sec + (tv->tv_usec / USEC_PER_SEC);
+		schedule_timeout(HZ * secs);
 	}
-
-	ret = __core_sys_select(n, inp, outp, exp, to);
-	ret = poll_select_copy_remaining(&end_time, tv, 1, ret);
-
-	if (ret < 0)
-		errno = -ret;
-	return ret;
+	return 0;
 }
 
 
@@ -844,9 +371,119 @@ retry_deleg:
 	return error;
 }   
 
+static struct file *ftable[1024];
+static unsigned long next_free = 3, free_head;
+
+static DEFINE_SPINLOCK(ftable_lock);
+
+static int __install_file(struct file *fp)
+{
+	int fd = 0;
+
+	spin_lock(&ftable_lock);
+	if (next_free == 1024) {
+		if (free_head) {
+			fd = free_head;
+			free_head = (unsigned long) ftable[free_head];
+		} 
+	} else {
+		fd = next_free++;
+	}
+	spin_unlock(&ftable_lock);
+
+	if (fd > 0) {
+		ftable[fd] = fp;
+		return fd;
+	}
+	return -1;
+}
+
+static struct file *__get_file(int fd)
+{
+	struct file *fp;
+
+	fp = ftable[fd];
+	if ((unsigned long) fp < 1024)
+	   return NULL;
+	return fp;	
+}
+
+static struct file *__uninstall_file(int fd)
+{
+	struct file *fp;
+	spin_lock(&ftable_lock);
+	fp = __get_file(fd);
+	if (fp) {
+		ftable[fd] = (void *) free_head;
+		free_head = fd;
+	}
+	spin_unlock(&ftable_lock);
+	return fp;
+}
+
+static struct file *__fget(unsigned int fd, fmode_t mask)
+{
+	struct file *file;
+
+	rcu_read_lock();
+loop:
+	file = __get_file(fd);
+	if (file) {
+		/* File object ref couldn't be taken.
+		 * dup2() atomicity guarantee is the reason
+		 * we loop to catch the new file (or NULL pointer)
+		 */
+		if (file->f_mode & mask)
+			file = NULL;
+		else if (!get_file_rcu(file))
+			goto loop;
+	}
+	rcu_read_unlock();
+
+	return file;
+}
+
+static unsigned long __fget_light(unsigned int fd, fmode_t mask)
+{
+	struct files_struct *files = current->files;
+	struct file *file;
+
+	if (atomic_read(&files->count) == 1) {
+		file = __get_file(fd);
+		if (!file || unlikely(file->f_mode & mask))
+			return 0;
+		return (unsigned long)file;
+	} else {
+		file = __fget(fd, mask);
+		if (!file)
+			return 0;
+		return FDPUT_FPUT | (unsigned long)file;
+	}
+}
+
+static unsigned long ___fdget_raw(unsigned int fd)
+{
+	return __fget_light(fd, 0);
+}
+
+static inline struct fd _fdget_raw(unsigned int fd)
+{
+	return __to_fd(___fdget_raw(fd));
+}
+
+static unsigned long ___fdget(unsigned int fd)
+{
+	return __fget_light(fd, FMODE_PATH);
+}
+
+static inline struct fd _fdget(unsigned int fd)
+{
+	return __to_fd(___fdget(fd));
+}
+
 int fchmod(int fd, mode_t mode)
 {
-	struct fd f = fdget(fd);
+	struct fd f = _fdget(fd);
 	int err = -EBADF;
 
 	if (f.file) {
@@ -1033,7 +670,6 @@ int rename(const char *oldname, const char *newname)
 	errno = -ret;
 	return ret;
 }
-
 
 /* sys_fcntl */
 
@@ -1240,9 +876,7 @@ static int __fcntl_setlk(unsigned int fd, struct file *filp, unsigned int cmd,
 	if (!error && file_lock->fl_type != F_UNLCK &&
 			!(file_lock->fl_flags & FL_OFDLCK)) {
 
-		spin_lock(&current->files->file_lock);
-		f = fcheck(fd);
-		spin_unlock(&current->files->file_lock);
+		f = ftable[fd];
 		if (f != filp) {
 			file_lock->fl_type = F_UNLCK;
 			error = do_lock_file_wait(filp, cmd, file_lock);
@@ -1254,7 +888,6 @@ out:
 	locks_free_lock(file_lock);
 	return error;
 }
-
 
 static long do_fcntl(int fd, unsigned int cmd, unsigned long arg,
 		struct file *filp)
@@ -1288,58 +921,6 @@ static int check_fcntl_cmd(unsigned cmd)
 	return 0;
 }
 
-static struct file *__fget(unsigned int fd, fmode_t mask)
-{
-	struct files_struct *files = current->files;
-	struct file *file;
-
-	rcu_read_lock();
-loop:
-	file = fcheck_files(files, fd);
-	if (file) {
-		/* File object ref couldn't be taken.
-		 * dup2() atomicity guarantee is the reason
-		 * we loop to catch the new file (or NULL pointer)
-		 */
-		if (file->f_mode & mask)
-			file = NULL;
-		else if (!get_file_rcu(file))
-			goto loop;
-	}
-	rcu_read_unlock();
-
-	return file;
-}
-
-static unsigned long ___fget_light(unsigned int fd, fmode_t mask)
-{
-	struct files_struct *files = current->files;
-	struct file *file;
-
-	if (atomic_read(&files->count) == 1) {
-		file = __fcheck_files(files, fd);
-		if (!file || unlikely(file->f_mode & mask))
-			return 0;
-		return (unsigned long)file;
-	} else {
-		file = __fget(fd, mask);
-		if (!file)
-			return 0;
-		return FDPUT_FPUT | (unsigned long)file;
-	}
-}
-
-static unsigned long ___fdget_raw(unsigned int fd)
-{
-	return ___fget_light(fd, 0);
-}
-
-static inline struct fd _fdget_raw(unsigned int fd)
-{
-	return __to_fd(___fdget_raw(fd));
-}
-
-
 int fcntl(int fd, int cmd, struct flock *arg)
 {   
 	struct fd f = _fdget_raw(fd);
@@ -1366,51 +947,21 @@ out:
 
 /* sys_close */
 
-static inline void __clear_open_fd(unsigned int fd, struct fdtable *fdt)
-{
-	__clear_bit(fd, fdt->open_fds);
-	__clear_bit(fd / BITS_PER_LONG, fdt->full_fds_bits);
-}
-
-static void __put_unused_fd(struct files_struct *files, unsigned int fd)
-{
-	struct fdtable *fdt = files_fdtable(files);
-	__clear_open_fd(fd, fdt);
-	if (fd < files->next_fd)
-		files->next_fd = fd;
-}
-
-static inline void __clear_close_on_exec(unsigned int fd, struct fdtable *fdt)
-{
-	if (test_bit(fd, fdt->close_on_exec))
-		__clear_bit(fd, fdt->close_on_exec);
-}
-
 int close(int fd)
 {
-	struct files_struct *files = current->files;
 	struct file *file;
-	struct fdtable *fdt;
 	int ret;
 
-	spin_lock(&files->file_lock);
-	fdt = files_fdtable(files);
-	if (fd >= fdt->max_fds)
-		goto out_unlock;
-	file = fdt->fd[fd];
+	file = __uninstall_file(fd);
 	if (!file)
 		goto out_unlock;
-	rcu_assign_pointer(fdt->fd[fd], NULL);
-	__clear_close_on_exec(fd, fdt);
-	__put_unused_fd(files, fd);
-	spin_unlock(&files->file_lock);
-	ret = filp_close(file, files);
+
+	ret = filp_close(file, NULL);
 	if (ret < 0) 
 		errno = -ret;
 	return ret;
 
 out_unlock:
-	spin_unlock(&files->file_lock);
 	errno = EBADF;
 	return -EBADF;
 }
@@ -1421,7 +972,7 @@ int fsync(int fd)
 	int ret;
 	struct file *f;
 
-	f = fget(fd);
+	f = __fget(fd, FMODE_PATH);
 	if(!f) {
 		errno = EINVAL;
 		return -1;
@@ -1440,7 +991,7 @@ int fdatasync(int fd)
 	int ret;
 	struct file *f;
 
-	f = fget(fd);
+	f = __fget(fd, FMODE_PATH);
 	if (!f) {
 		errno = EINVAL;
 		return -1;
@@ -1478,7 +1029,7 @@ static inline void file_pos_write(struct file *file, loff_t pos)
 
 static unsigned long ___fdget_pos(unsigned int fd)
 {
-	unsigned long v = __fdget(fd);
+	unsigned long v = __fget_light(fd, FMODE_PATH);
 	struct file *file = (struct file *)(v & ~3);
 
 	if (file && (file->f_mode & FMODE_ATOMIC_POS)) {
@@ -1545,7 +1096,7 @@ ssize_t write(int fd, const void *buf, size_t count)
 }
 
 /* sys_pread */
-int pread(int fd, void* buf, size_t count, loff_t pos)
+ssize_t pread(int fd, void* buf, size_t count, loff_t pos)
 {
 	mm_segment_t old_fs;
 	struct fd f;
@@ -1556,7 +1107,7 @@ int pread(int fd, void* buf, size_t count, loff_t pos)
 		return -EINVAL;
 	}
 
-	f = fdget(fd);
+	f = _fdget(fd);
 	if (f.file) {
 		ret = -ESPIPE;
 		if (f.file->f_mode & FMODE_PREAD) {
@@ -1574,7 +1125,7 @@ int pread(int fd, void* buf, size_t count, loff_t pos)
 }
 
 /* sys_pread */
-int pwrite(int fd, const void *buf, size_t count, loff_t pos)
+ssize_t pwrite(int fd, const void *buf, size_t count, loff_t pos)
 {
 	mm_segment_t old_fs;
 	struct fd f;
@@ -1585,7 +1136,7 @@ int pwrite(int fd, const void *buf, size_t count, loff_t pos)
 		return -EINVAL;
 	}
 
-	f = fdget(fd);
+	f = _fdget(fd);
 	if (f.file) {
 		ret = -ESPIPE;
 		if (f.file->f_mode & FMODE_PWRITE) {
@@ -1694,14 +1245,16 @@ int open(const char *pathname, int flags, mode_t mode)
 {
 	int fd = get_unused_fd_flags(flags);
 
-	if (fd >= 0) {
-		struct file *f = filp_open(pathname, flags, mode);
-		if (IS_ERR(f)) {
-			put_unused_fd(fd);
-			fd = PTR_ERR(f);
+	struct file *f = filp_open(pathname, flags, mode);
+	if (IS_ERR(f)) {
+		fd = PTR_ERR(f);
+	} else {
+		fd = __install_file(f);
+		if (fd == -1)  {
+			fd = -EMFILE;
+			filp_close(f, 0);
 		} else {
 			fsnotify_open(f);
-			fd_install(fd, f);
 		}
 	}
 	if (fd < 0)
@@ -1714,11 +1267,15 @@ int open(const char *pathname, int flags, mode_t mode)
 int fstat(int fd, struct stat *st)
 {
 	struct kstat ks;
-	ssize_t res;
+	struct fd f = _fdget_raw(fd);
+	int error = -EBADF;
 
-	res = vfs_fstat(fd, &ks);
+	if (f.file) {
+		error = vfs_getattr(&f.file->f_path, &ks);
+		fdput(f);
+	}
 
-	if (res == 0) {
+	if (error == 0) {
 		st->st_dev = ks.dev;
 		st->st_ino = ks.ino;
 		st->st_mode = ks.mode;
@@ -1736,9 +1293,9 @@ int fstat(int fd, struct stat *st)
 		st->st_mtime_nsec = ks.mtime.tv_nsec;
 		st->st_ctime_nsec = ks.ctime.tv_nsec;
 	} else {
-		errno = -res;
+		errno = -error;
 	}
-	return res;
+	return error;
 }
 
 /* sys_lseek */
@@ -1806,3 +1363,8 @@ uid_t getuid(void)
 {
 	return from_kuid_munged(current_user_ns(), current_uid());
 }	   
+
+#include <db.h>
+EXPORT_SYMBOL(db_strerror);
+EXPORT_SYMBOL(db_env_create);
+EXPORT_SYMBOL(db_create);
