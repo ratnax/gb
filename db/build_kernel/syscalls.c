@@ -170,7 +170,7 @@ static void _putname(struct filename *name)
 
 
 extern struct filename *
-kernel_path_parent(int dfd, const char __user *path,
+kern_path_parent(int dfd, const char __user *path,
 		 struct path *parent,
 		 struct qstr *last,
 		 int *type,
@@ -188,7 +188,7 @@ static long do_unlinkat(int dfd, const char *pathname)
 	struct inode *delegated_inode = NULL;
 	unsigned int lookup_flags = 0;
 retry:
-	name = kernel_path_parent(dfd, pathname,
+	name = kern_path_parent(dfd, pathname,
 				&path, &last, &type, lookup_flags);
 	if (IS_ERR(name)) {
 		errno = -PTR_ERR(name);
@@ -271,7 +271,7 @@ int rmdir(const char *pathname)
 	int type;
 	unsigned int lookup_flags = 0;
 retry:
-	name = kernel_path_parent(AT_FDCWD, pathname,
+	name = kern_path_parent(AT_FDCWD, pathname,
 				&path, &last, &type, lookup_flags);
 	if (IS_ERR(name)) {
 		errno = -PTR_ERR(name);
@@ -550,14 +550,14 @@ static int renameat2(int olddfd, const char *oldname,
 		target_flags = 0;
 
 retry:
-	from = kernel_path_parent(olddfd, oldname,
+	from = kern_path_parent(olddfd, oldname,
 				&old_path, &old_last, &old_type, lookup_flags);
 	if (IS_ERR(from)) {
 		error = PTR_ERR(from);
 		goto exit;
 	}
 
-	to = kernel_path_parent(newdfd, newname,
+	to = kern_path_parent(newdfd, newname,
 				&new_path, &new_last, &new_type, lookup_flags);
 	if (IS_ERR(to)) {
 		error = PTR_ERR(to);
